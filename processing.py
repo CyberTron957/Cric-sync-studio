@@ -6,6 +6,7 @@ import uuid
 import subprocess
 import librosa
 import tempfile
+import re
 
 # Global dictionary to store task progress
 tasks = {}
@@ -19,6 +20,34 @@ ASPECT_RATIOS = {
     '4:3': (4, 3),
     '1:1_in_9:16': 'special'  # Special case for 1:1 with 9:16 enclosure
 }
+
+# Text position definitions
+TEXT_POSITIONS = {
+    'top': {'x': '(w-text_w)/2', 'y': '20'},
+    'bottom': {'x': '(w-text_w)/2', 'y': 'h-th-20'},
+    'top_left': {'x': '20', 'y': '20'},
+    'top_right': {'x': 'w-tw-20', 'y': '20'},
+    'bottom_left': {'x': '20', 'y': 'h-th-20'},
+    'bottom_right': {'x': 'w-tw-20', 'y': 'h-th-20'},
+    'center': {'x': '(w-text_w)/2', 'y': '(h-text_h)/2'}
+}
+
+# Default text style
+DEFAULT_TEXT_STYLE = {
+    'font': 'Arial',
+    'fontsize': 24,
+    'fontcolor': 'white',
+    'borderw': 2,
+    'bordercolor': 'black'
+}
+
+def sanitize_text(text):
+    """Sanitize text for FFmpeg command line"""
+    # Replace single quotes with escaped single quotes
+    text = text.replace("'", "'\\''")
+    # Remove any characters that could cause issues
+    text = re.sub(r'[^\w\s.,;:!?\'"\-+=]', '', text)
+    return text
 
 def detect_beats(music_file):
     """Detect beats in the music file and return the average beat duration"""
@@ -163,7 +192,36 @@ def calculate_crop_params(width, height, aspect_ratio):
         'pad': None
     }
 
-def process_video(session_id, task_id, keep_original_audio=False, crop_option='original'):
+def create_text_overlay_filter(text, position, style=None):
+    """Create FFmpeg drawtext filter for text overlay"""
+    if not text:
+        return None
+    
+    # Get position coordinates
+    pos = TEXT_POSITIONS.get(position, TEXT_POSITIONS['bottom'])
+    
+    # Merge provided style with defaults
+    style = style or {}
+    text_style = {**DEFAULT_TEXT_STYLE, **style}
+    
+    # Sanitize text
+    safe_text = sanitize_text(text)
+    
+    # Build the drawtext filter
+    filter_text = (
+        f"drawtext=text='{safe_text}'"
+        f":fontfile=/System/Library/Fonts/Supplemental/{text_style['font']}.ttf"
+        f":fontsize={text_style['fontsize']}"
+        f":fontcolor={text_style['fontcolor']}"
+        f":borderw={text_style['borderw']}"
+        f":bordercolor={text_style['bordercolor']}"
+        f":x={pos['x']}:y={pos['y']}"
+        f":box=1:boxcolor=black@0.5"
+    )
+    
+    return filter_text
+
+def process_video(session_id, task_id, keep_original_audio=False, crop_option='original', text_overlays=None):
     """Process a video based on session data"""
     try:
         # Load session data
@@ -258,7 +316,7 @@ def process_video(session_id, task_id, keep_original_audio=False, crop_option='o
                 for clip in temp_clips:
                     f.write(f"file '{clip}'\n")
             
-            update_progress(task_id, 80, "processing", "Finalizing output")
+            update_progress(task_id, 80, "processing", "Applying text overlays and finalizing output")
             
             # Output file paths
             output_dir = "processed"
@@ -269,27 +327,61 @@ def process_video(session_id, task_id, keep_original_audio=False, crop_option='o
             crop_suffix = f"_{crop_option.replace(':', '_')}" if crop_option != 'original' else ""
             output_file = os.path.join(output_dir, f"{session_id}{crop_suffix}_output.mp4")
             
+            # Prepare for text overlay
+            temp_combined = os.path.join(temp_dir, "combined.mp4")
+            
             # Combine clips with appropriate audio
             if keep_original_audio:
                 # Just concatenate clips with their original audio
-                cmd = (
+                concat_cmd = (
                     f'ffmpeg -f concat -safe 0 -i "{clips_list}" '
-                    f'-c copy "{output_file}" -y -loglevel error'
+                    f'-c copy "{temp_combined}" -y -loglevel error'
                 )
             else:
                 # Combine clips (with their original audio) and add music as a separate track
-                cmd = (
+                concat_cmd = (
                     f'ffmpeg -f concat -safe 0 -i "{clips_list}" -i "{music_path}" '
                     f'-filter_complex "[0:a][1:a]amix=inputs=2:duration=longest:weights=0.5 0.5[a]" '
                     f'-map 0:v -map "[a]" -c:v copy -c:a aac -shortest '
-                    f'"{output_file}" -y -loglevel error'
+                    f'"{temp_combined}" -y -loglevel error'
                 )
             
-            subprocess.run(cmd, shell=True)
+            subprocess.run(concat_cmd, shell=True)
+            
+            # Apply text overlays if provided
+            if text_overlays and len(text_overlays) > 0:
+                text_filters = []
+                
+                for overlay in text_overlays:
+                    if overlay.get('text'):
+                        text_filter = create_text_overlay_filter(
+                            overlay.get('text', ''),
+                            overlay.get('position', 'bottom'),
+                            overlay.get('style', {})
+                        )
+                        if text_filter:
+                            text_filters.append(text_filter)
+                
+                if text_filters:
+                    # Apply all text overlays to the combined video
+                    text_filter_chain = ','.join(text_filters)
+                    text_cmd = (
+                        f'ffmpeg -i "{temp_combined}" -vf "{text_filter_chain}" '
+                        f'-c:v libx264 -c:a copy -y "{output_file}" -loglevel error'
+                    )
+                    subprocess.run(text_cmd, shell=True)
+                else:
+                    # No text filters, just copy the combined file
+                    os.rename(temp_combined, output_file)
+            else:
+                # No text overlays, just use the combined file
+                os.rename(temp_combined, output_file)
             
             # Update session data with output file
             session_data['output_file'] = output_file
             session_data['crop_option'] = crop_option
+            if text_overlays:
+                session_data['text_overlays'] = text_overlays
             with open(session_file, 'w') as f:
                 json.dump(session_data, f)
             
@@ -300,7 +392,7 @@ def process_video(session_id, task_id, keep_original_audio=False, crop_option='o
         update_progress(task_id, 0, "failed", f"Error: {str(e)}")
         return False
 
-def process_video_task(session_id, keep_original_audio=False, crop_option='original'):
+def process_video_task(session_id, keep_original_audio=False, crop_option='original', text_overlays=None):
     """Start a background task to process a video"""
     task_id = str(uuid.uuid4())
     
@@ -308,7 +400,7 @@ def process_video_task(session_id, keep_original_audio=False, crop_option='origi
     update_progress(task_id, 0, "starting", "Starting video processing")
     
     # Start processing in a background thread
-    thread = threading.Thread(target=process_video, args=(session_id, task_id, keep_original_audio, crop_option))
+    thread = threading.Thread(target=process_video, args=(session_id, task_id, keep_original_audio, crop_option, text_overlays))
     thread.daemon = True
     thread.start()
     

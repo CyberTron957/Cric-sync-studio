@@ -158,6 +158,18 @@
                                 </div>
                             </div>
                             
+                            <div class="card mb-3">
+                                <div class="card-header">Text Overlay</div>
+                                <div class="card-body">
+                                    <button id="manage-text-overlay" class="btn btn-outline-primary w-100">
+                                        <i class="fas fa-font"></i> Manage Text Overlays
+                                    </button>
+                                    <div class="mt-2" id="text-overlay-summary">
+                                        <small class="text-muted">No text overlays added</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <button id="create-video" class="btn btn-success w-100">
                                 <i class="fas fa-film"></i> Create Highlight Reel
                             </button>
@@ -257,6 +269,124 @@
                     <a href="#" id="preview-download-btn" class="btn btn-success">
                         <i class="fas fa-download"></i> Download Highlight Reel
                     </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Text Overlay Modal -->
+    <div class="modal fade" id="textOverlayModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Manage Text Overlays</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6>Text Overlays</h6>
+                            <button id="add-overlay" class="btn btn-sm btn-primary">
+                                <i class="fas fa-plus"></i> Add Overlay
+                            </button>
+                        </div>
+                        
+                        <div id="text-overlays-container" class="mb-3">
+                            <!-- Overlay items will be added here dynamically -->
+                            <div class="text-center text-muted" id="no-overlays">
+                                No text overlays added yet. Click "Add Overlay" to add text to your video.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="overlay-editor" class="border rounded p-3 mb-3 d-none">
+                        <h6>Edit Overlay</h6>
+                        
+                        <div class="form-group mb-3">
+                            <label for="overlay-text">Text:</label>
+                            <input type="text" class="form-control" id="overlay-text" placeholder="Enter text to display">
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group mb-3">
+                                    <label for="overlay-position">Position:</label>
+                                    <select class="form-select" id="overlay-position">
+                                        <option value="bottom" selected>Bottom</option>
+                                        <option value="top">Top</option>
+                                        <option value="top_left">Top Left</option>
+                                        <option value="top_right">Top Right</option>
+                                        <option value="bottom_left">Bottom Left</option>
+                                        <option value="bottom_right">Bottom Right</option>
+                                        <option value="center">Center</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group mb-3">
+                                    <label for="overlay-font">Font:</label>
+                                    <select class="form-select" id="overlay-font">
+                                        <option value="Arial" selected>Arial</option>
+                                        <option value="Arial-Bold">Arial Bold</option>
+                                        <option value="TimesNewRomanPSMT">Times New Roman</option>
+                                        <option value="TimesNewRomanPS-BoldMT">Times New Roman Bold</option>
+                                        <option value="Georgia">Georgia</option>
+                                        <option value="Georgia-Bold">Georgia Bold</option>
+                                        <option value="Verdana">Verdana</option>
+                                        <option value="Verdana-Bold">Verdana Bold</option>
+                                        <option value="Comic-Sans-MS">Comic Sans MS</option>
+                                        <option value="Impact">Impact</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="form-group mb-3">
+                                    <label for="overlay-fontsize">Font Size:</label>
+                                    <input type="number" class="form-control" id="overlay-fontsize" min="10" max="100" value="24">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group mb-3">
+                                    <label for="overlay-fontcolor">Font Color:</label>
+                                    <input type="color" class="form-control form-control-color" id="overlay-fontcolor" value="#ffffff">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group mb-3">
+                                    <label for="overlay-bordercolor">Border Color:</label>
+                                    <input type="color" class="form-control form-control-color" id="overlay-bordercolor" value="#000000">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group mb-3">
+                            <label for="overlay-borderw">Border Width:</label>
+                            <input type="range" class="form-range" id="overlay-borderw" min="0" max="5" step="1" value="2">
+                            <div class="d-flex justify-content-between">
+                                <small>None</small>
+                                <small>Medium</small>
+                                <small>Heavy</small>
+                            </div>
+                        </div>
+                        
+                        <div class="text-overlay-preview p-3 mb-3">
+                            <div id="overlay-preview-text" class="text-center p-2">
+                                Preview Text
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between">
+                            <button id="cancel-overlay-edit" class="btn btn-outline-secondary">Cancel</button>
+                            <button id="save-overlay" class="btn btn-primary">Save Overlay</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="apply-text-overlays">Apply Overlays</button>
                 </div>
             </div>
         </div>

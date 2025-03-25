@@ -16,6 +16,7 @@ A web application for creating synchronized cricket highlight reels with music. 
 - Video cropping in multiple aspect ratios (16:9, 9:16, 1:1, 4:3)
 - Special 1:1 crop with 9:16 enclosure (square video centered in vertical format)
 - Preview processed videos before downloading
+- Text overlay capabilities for adding titles, captions, and annotations
 
 ## Requirements
 
@@ -47,11 +48,12 @@ A web application for creating synchronized cricket highlight reels with music. 
 4. Optionally import timestamps from a previous session
 5. Mark timestamps of important moments in the video
 6. Trim the music file if needed
-7. Choose an aspect ratio for the output video
-8. Choose to use only original audio (no music) if desired
-9. Create your highlight reel
-10. Preview the processed video to ensure it meets your requirements
-11. Download the final highlight reel
+7. Add text overlays if desired
+8. Choose an aspect ratio for the output video
+9. Choose to use only original audio (no music) if desired
+10. Create your highlight reel
+11. Preview the processed video to ensure it meets your requirements
+12. Download the final highlight reel
 
 ## Aspect Ratio Options
 
@@ -64,6 +66,17 @@ The application offers several aspect ratio options for output videos:
 - **Square in Vertical (1:1 in 9:16)**: Square video centered in a 9:16 frame with black padding
 
 All cropping operations maintain the center of the frame by default.
+
+## Text Overlay Options
+
+The application allows adding multiple text overlays to your videos:
+- Add titles, captions, scores, or other annotations
+- Position text at various locations (top, bottom, corners, center)
+- Customize font family, size, and color
+- Add optional border/outline to improve readability
+- Preview text appearance before applying
+
+You can add different text overlays with different styles positioned at different locations throughout the video.
 
 ## Audio Options
 

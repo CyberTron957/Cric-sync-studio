@@ -332,6 +332,7 @@ def process_video():
     session_id = data.get('session_id')
     keep_original_audio = data.get('keep_original_audio', False)
     crop_option = data.get('crop_option', 'original')
+    text_overlays = data.get('text_overlays', [])
     
     if not session_id:
         return jsonify({'error': 'No session ID provided'}), 400
@@ -358,9 +359,33 @@ def process_video():
     if crop_option not in ASPECT_RATIOS:
         return jsonify({'error': 'Invalid crop option'}), 400
     
+    # Validate text overlays
+    from processing import TEXT_POSITIONS
+    valid_text_overlays = []
+    for overlay in text_overlays:
+        if not isinstance(overlay, dict) or 'text' not in overlay:
+            continue
+            
+        valid_overlay = {
+            'text': overlay.get('text', '').strip(),
+            'position': overlay.get('position', 'bottom')
+        }
+        
+        # Validate position
+        if valid_overlay['position'] not in TEXT_POSITIONS:
+            valid_overlay['position'] = 'bottom'
+            
+        # Get style if provided
+        if 'style' in overlay and isinstance(overlay['style'], dict):
+            valid_overlay['style'] = overlay['style']
+            
+        # Add to valid overlays if text is not empty
+        if valid_overlay['text']:
+            valid_text_overlays.append(valid_overlay)
+    
     # Start processing in a background task
     from processing import process_video_task
-    task_id = process_video_task(session_id, keep_original_audio, crop_option)
+    task_id = process_video_task(session_id, keep_original_audio, crop_option, valid_text_overlays)
     
     return jsonify({
         'success': True,
@@ -476,6 +501,49 @@ def preview_video(session_id):
         os.path.dirname(output_file),
         os.path.basename(output_file)
     )
+
+@app.route('/text_positions', methods=['GET'])
+def get_text_positions():
+    """Return the available text positions with descriptions"""
+    from processing import TEXT_POSITIONS
+    
+    # Create a list of positions with labels
+    positions = [
+        {'value': 'top', 'label': 'Top'},
+        {'value': 'bottom', 'label': 'Bottom'},
+        {'value': 'top_left', 'label': 'Top Left'},
+        {'value': 'top_right', 'label': 'Top Right'},
+        {'value': 'bottom_left', 'label': 'Bottom Left'},
+        {'value': 'bottom_right', 'label': 'Bottom Right'},
+        {'value': 'center', 'label': 'Center'}
+    ]
+    
+    return jsonify({
+        'success': True,
+        'positions': positions
+    })
+
+@app.route('/font_options', methods=['GET'])
+def get_font_options():
+    """Return a list of available font options"""
+    # Basic list of common fonts - this could be generated from the system
+    fonts = [
+        {'value': 'Arial', 'label': 'Arial'},
+        {'value': 'Arial-Bold', 'label': 'Arial Bold'},
+        {'value': 'TimesNewRomanPSMT', 'label': 'Times New Roman'},
+        {'value': 'TimesNewRomanPS-BoldMT', 'label': 'Times New Roman Bold'},
+        {'value': 'Georgia', 'label': 'Georgia'},
+        {'value': 'Georgia-Bold', 'label': 'Georgia Bold'},
+        {'value': 'Verdana', 'label': 'Verdana'},
+        {'value': 'Verdana-Bold', 'label': 'Verdana Bold'},
+        {'value': 'Comic-Sans-MS', 'label': 'Comic Sans MS'},
+        {'value': 'Impact', 'label': 'Impact'}
+    ]
+    
+    return jsonify({
+        'success': True,
+        'fonts': fonts
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)  

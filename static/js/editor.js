@@ -34,6 +34,26 @@ document.addEventListener('DOMContentLoaded', function() {
     const previewPlayer = document.getElementById('preview-player');
     const previewDownloadBtn = document.getElementById('preview-download-btn');
     
+    // Text overlay elements
+    const manageTextOverlayBtn = document.getElementById('manage-text-overlay');
+    const textOverlayModal = new bootstrap.Modal(document.getElementById('textOverlayModal'));
+    const textOverlaysContainer = document.getElementById('text-overlays-container');
+    const noOverlays = document.getElementById('no-overlays');
+    const addOverlayBtn = document.getElementById('add-overlay');
+    const overlayEditor = document.getElementById('overlay-editor');
+    const overlayTextInput = document.getElementById('overlay-text');
+    const overlayPositionSelect = document.getElementById('overlay-position');
+    const overlayFontSelect = document.getElementById('overlay-font');
+    const overlayFontsizeInput = document.getElementById('overlay-fontsize');
+    const overlayFontcolorInput = document.getElementById('overlay-fontcolor');
+    const overlayBordercolorInput = document.getElementById('overlay-bordercolor');
+    const overlayBorderwInput = document.getElementById('overlay-borderw');
+    const overlayPreviewText = document.getElementById('overlay-preview-text');
+    const cancelOverlayEditBtn = document.getElementById('cancel-overlay-edit');
+    const saveOverlayBtn = document.getElementById('save-overlay');
+    const applyTextOverlaysBtn = document.getElementById('apply-text-overlays');
+    const textOverlaySummary = document.getElementById('text-overlay-summary');
+    
     // Audio trim elements
     const trimAudioBtn = document.getElementById('trim-audio-btn');
     const trimAudioModal = document.getElementById('trimAudioModal') ? new bootstrap.Modal(document.getElementById('trimAudioModal')) : null;
@@ -49,6 +69,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Timestamps array
     let timestamps = [];
+    
+    // Text overlays array
+    let textOverlays = [];
+    let currentEditingIndex = -1;
     
     // Initialize video player
     videoPlayer.addEventListener('loadedmetadata', function() {
@@ -305,6 +329,106 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    // Text overlay functionality
+    if (manageTextOverlayBtn) {
+        manageTextOverlayBtn.addEventListener('click', function() {
+            textOverlayModal.show();
+        });
+    }
+    
+    if (addOverlayBtn) {
+        addOverlayBtn.addEventListener('click', function() {
+            // Reset editor fields for a new overlay
+            currentEditingIndex = -1;
+            overlayTextInput.value = '';
+            overlayPositionSelect.value = 'bottom';
+            overlayFontSelect.value = 'Arial';
+            overlayFontsizeInput.value = '24';
+            overlayFontcolorInput.value = '#ffffff';
+            overlayBordercolorInput.value = '#000000';
+            overlayBorderwInput.value = '2';
+            
+            // Show editor
+            overlayEditor.classList.remove('d-none');
+            updateOverlayPreview();
+            
+            // Focus on text input
+            overlayTextInput.focus();
+        });
+    }
+    
+    if (cancelOverlayEditBtn) {
+        cancelOverlayEditBtn.addEventListener('click', function() {
+            overlayEditor.classList.add('d-none');
+        });
+    }
+    
+    if (saveOverlayBtn) {
+        saveOverlayBtn.addEventListener('click', function() {
+            const text = overlayTextInput.value.trim();
+            if (!text) {
+                alert('Please enter some text for the overlay');
+                return;
+            }
+            
+            const overlay = {
+                text: text,
+                position: overlayPositionSelect.value,
+                style: {
+                    font: overlayFontSelect.value,
+                    fontsize: parseInt(overlayFontsizeInput.value),
+                    fontcolor: overlayFontcolorInput.value,
+                    borderw: parseInt(overlayBorderwInput.value),
+                    bordercolor: overlayBordercolorInput.value
+                }
+            };
+            
+            if (currentEditingIndex >= 0 && currentEditingIndex < textOverlays.length) {
+                // Editing existing overlay
+                textOverlays[currentEditingIndex] = overlay;
+            } else {
+                // Adding new overlay
+                textOverlays.push(overlay);
+            }
+            
+            // Hide editor and update overlays list
+            overlayEditor.classList.add('d-none');
+            updateTextOverlaysList();
+            updateTextOverlaySummary();
+        });
+    }
+    
+    // Initialize text overlay preview updates
+    if (overlayTextInput) {
+        overlayTextInput.addEventListener('input', updateOverlayPreview);
+    }
+    
+    if (overlayFontSelect) {
+        overlayFontSelect.addEventListener('change', updateOverlayPreview);
+    }
+    
+    if (overlayFontsizeInput) {
+        overlayFontsizeInput.addEventListener('input', updateOverlayPreview);
+    }
+    
+    if (overlayFontcolorInput) {
+        overlayFontcolorInput.addEventListener('input', updateOverlayPreview);
+    }
+    
+    if (overlayBordercolorInput) {
+        overlayBordercolorInput.addEventListener('input', updateOverlayPreview);
+    }
+    
+    if (overlayBorderwInput) {
+        overlayBorderwInput.addEventListener('input', updateOverlayPreview);
+    }
+    
+    if (applyTextOverlaysBtn) {
+        applyTextOverlaysBtn.addEventListener('click', function() {
+            textOverlayModal.hide();
+        });
+    }
+    
     // Functions
     
     function togglePlayPause() {
@@ -465,18 +589,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 body: JSON.stringify({
                     session_id: sessionId,
-                    timestamps: timestamps
+                    timestamps: timestamps,
+                    text_overlays: textOverlays
                 })
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     if (!silent) {
-                        alert('Timestamps saved successfully');
+                        alert('Timestamps and text overlays saved successfully');
                     }
                     resolve(data);
                 } else {
-                    reject(new Error(data.error || 'Failed to save timestamps'));
+                    reject(new Error(data.error || 'Failed to save timestamps and text overlays'));
                 }
             })
             .catch(error => {
@@ -508,7 +633,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({
                     session_id: sessionId,
                     keep_original_audio: keepOriginalAudio,
-                    crop_option: cropOption
+                    crop_option: cropOption,
+                    text_overlays: textOverlays
                 })
             });
         })
@@ -634,5 +760,145 @@ document.addEventListener('DOMContentLoaded', function() {
         // Add the appropriate class based on selection
         const className = 'ratio-' + option.replace(':', '-').replace('_', '-');
         ratioPreview.classList.add(className);
+    }
+    
+    // Function to update overlay preview
+    function updateOverlayPreview() {
+        if (!overlayPreviewText) return;
+        
+        const text = overlayTextInput.value.trim() || 'Preview Text';
+        const fontSize = overlayFontsizeInput.value + 'px';
+        const fontColor = overlayFontcolorInput.value;
+        const borderWidth = overlayBorderwInput.value + 'px';
+        const borderColor = overlayBordercolorInput.value;
+        
+        overlayPreviewText.textContent = text;
+        overlayPreviewText.style.fontSize = fontSize;
+        overlayPreviewText.style.color = fontColor;
+        
+        if (parseInt(overlayBorderwInput.value) > 0) {
+            overlayPreviewText.style.textShadow = `
+                0px 0px ${borderWidth} ${borderColor},
+                0px 0px ${borderWidth} ${borderColor},
+                0px 0px ${borderWidth} ${borderColor},
+                0px 0px ${borderWidth} ${borderColor}
+            `;
+        } else {
+            overlayPreviewText.style.textShadow = 'none';
+        }
+        
+        // Try to update font family if supported
+        try {
+            const fontFamily = overlayFontSelect.value.replace(/-/g, ' ');
+            overlayPreviewText.style.fontFamily = fontFamily;
+        } catch (e) {
+            console.log('Error setting font family:', e);
+        }
+    }
+    
+    // Function to update text overlays list
+    function updateTextOverlaysList() {
+        // Show/hide no overlays message
+        if (textOverlays.length === 0) {
+            if (noOverlays) noOverlays.classList.remove('d-none');
+        } else {
+            if (noOverlays) noOverlays.classList.add('d-none');
+        }
+        
+        // Clear existing overlay items
+        const items = textOverlaysContainer.querySelectorAll('.overlay-item');
+        items.forEach(item => item.remove());
+        
+        // Add overlay items
+        textOverlays.forEach((overlay, index) => {
+            const item = document.createElement('div');
+            item.className = 'overlay-item';
+            
+            // Find position label
+            let positionLabel = overlay.position;
+            const positionOption = overlayPositionSelect.querySelector(`option[value="${overlay.position}"]`);
+            if (positionOption) {
+                positionLabel = positionOption.textContent;
+            }
+            
+            item.innerHTML = `
+                <div>
+                    <div class="overlay-item-text">${overlay.text}</div>
+                    <div class="overlay-item-position">${positionLabel}</div>
+                </div>
+                <div class="overlay-actions">
+                    <button class="btn btn-sm btn-outline-primary edit-overlay" data-index="${index}">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger delete-overlay" data-index="${index}">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `;
+            
+            // Add event listeners
+            const editBtn = item.querySelector('.edit-overlay');
+            editBtn.addEventListener('click', function() {
+                editOverlay(index);
+            });
+            
+            const deleteBtn = item.querySelector('.delete-overlay');
+            deleteBtn.addEventListener('click', function() {
+                deleteOverlay(index);
+            });
+            
+            textOverlaysContainer.appendChild(item);
+        });
+    }
+    
+    // Function to edit an overlay
+    function editOverlay(index) {
+        if (index < 0 || index >= textOverlays.length) return;
+        
+        currentEditingIndex = index;
+        const overlay = textOverlays[index];
+        
+        // Set form values
+        overlayTextInput.value = overlay.text;
+        overlayPositionSelect.value = overlay.position;
+        
+        // Set style values if they exist
+        if (overlay.style) {
+            if (overlay.style.font) overlayFontSelect.value = overlay.style.font;
+            if (overlay.style.fontsize) overlayFontsizeInput.value = overlay.style.fontsize;
+            if (overlay.style.fontcolor) overlayFontcolorInput.value = overlay.style.fontcolor;
+            if (overlay.style.borderw) overlayBorderwInput.value = overlay.style.borderw;
+            if (overlay.style.bordercolor) overlayBordercolorInput.value = overlay.style.bordercolor;
+        }
+        
+        // Show editor and update preview
+        overlayEditor.classList.remove('d-none');
+        updateOverlayPreview();
+        
+        // Scroll to editor
+        overlayEditor.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    // Function to delete an overlay
+    function deleteOverlay(index) {
+        if (index < 0 || index >= textOverlays.length) return;
+        
+        if (confirm('Are you sure you want to delete this text overlay?')) {
+            textOverlays.splice(index, 1);
+            updateTextOverlaysList();
+            updateTextOverlaySummary();
+        }
+    }
+    
+    // Function to update text overlay summary
+    function updateTextOverlaySummary() {
+        if (!textOverlaySummary) return;
+        
+        if (textOverlays.length === 0) {
+            textOverlaySummary.innerHTML = '<small class="text-muted">No text overlays added</small>';
+        } else {
+            const count = textOverlays.length;
+            textOverlaySummary.innerHTML = `<small class="text-success">${count} text overlay${count !== 1 ? 's' : ''} added</small>`;
+        }
     }
 }); 

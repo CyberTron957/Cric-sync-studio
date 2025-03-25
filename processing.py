@@ -45,7 +45,20 @@ def get_task_progress(task_id):
         'timestamp': time.time()
     })
 
-def process_video(session_id, task_id):
+def trim_audio_file(input_file, output_file, start_time, duration):
+    """Trim an audio file with FFmpeg"""
+    try:
+        cmd = (
+            f'ffmpeg -i "{input_file}" -ss {start_time} -t {duration} '
+            f'-c:a aac -b:a 192k -y "{output_file}" -loglevel error'
+        )
+        subprocess.run(cmd, shell=True)
+        return True
+    except Exception as e:
+        print(f"Error trimming audio: {str(e)}")
+        return False
+
+def process_video(session_id, task_id, keep_original_audio=False):
     """Process a video based on session data"""
     try:
         # Load session data
@@ -54,7 +67,7 @@ def process_video(session_id, task_id):
             session_data = json.load(f)
         
         video_path = session_data['video_path']
-        music_path = session_data['music_path']
+        music_path = session_data.get('music_path')
         timestamps = session_data['timestamps']
         
         # Check if we have enough data
@@ -62,10 +75,12 @@ def process_video(session_id, task_id):
             update_progress(task_id, 0, "failed", "No timestamps found")
             return False
         
-        update_progress(task_id, 10, "processing", "Detecting beats in music")
-        
-        # Get beat duration
-        beat_duration = detect_beats(music_path)
+        if keep_original_audio:
+            update_progress(task_id, 10, "processing", "Using original audio from clips")
+        else:
+            update_progress(task_id, 10, "processing", "Detecting beats in music")
+            # Get beat duration from music file
+            beat_duration = detect_beats(music_path)
         
         update_progress(task_id, 20, "processing", "Extracting video clips")
         
@@ -77,14 +92,24 @@ def process_video(session_id, task_id):
             # Process each timestamp
             for i, timestamp in enumerate(timestamps):
                 start_time = max(0, timestamp - 0.1)
+                
+                # Determine duration - either from beat or from session data
+                if 'durations' in session_data and len(session_data['durations']) > i:
+                    clip_duration = session_data['durations'][i]
+                elif keep_original_audio:
+                    clip_duration = 2.0  # Default duration when using original audio
+                else:
+                    clip_duration = beat_duration
+                    
                 temp_clip = os.path.join(temp_dir, f"temp_clip_{i}.mp4")
                 
-                # Extract clip with FFmpeg
-                cmd = (
-                    f'ffmpeg -i "{video_path}" -ss {start_time} -t {beat_duration} '
-                    f'-c:v libx264 -an -y "{temp_clip}" -loglevel error'
+                # Extract video clip with its original audio
+                video_cmd = (
+                    f'ffmpeg -i "{video_path}" -ss {start_time} -t {clip_duration} '
+                    f'-c:v libx264 -c:a aac -y "{temp_clip}" -loglevel error'
                 )
-                subprocess.run(cmd, shell=True)
+                
+                subprocess.run(video_cmd, shell=True)
                 temp_clips.append(temp_clip)
                 
                 # Update progress
@@ -97,20 +122,31 @@ def process_video(session_id, task_id):
                 for clip in temp_clips:
                     f.write(f"file '{clip}'\n")
             
-            update_progress(task_id, 80, "processing", "Combining clips with music")
+            update_progress(task_id, 80, "processing", "Finalizing output")
             
-            # Output file
+            # Output file paths
             output_dir = "processed"
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
                 
             output_file = os.path.join(output_dir, f"{session_id}_output.mp4")
             
-            # Combine clips with music
-            cmd = (
-                f'ffmpeg -f concat -safe 0 -i "{clips_list}" -i "{music_path}" '
-                f'-c:v copy -c:a aac -shortest "{output_file}" -y -loglevel error'
-            )
+            # Combine clips with appropriate audio
+            if keep_original_audio:
+                # Just concatenate clips with their original audio
+                cmd = (
+                    f'ffmpeg -f concat -safe 0 -i "{clips_list}" '
+                    f'-c copy "{output_file}" -y -loglevel error'
+                )
+            else:
+                # Combine clips (with their original audio) and add music as a separate track
+                cmd = (
+                    f'ffmpeg -f concat -safe 0 -i "{clips_list}" -i "{music_path}" '
+                    f'-filter_complex "[0:a][1:a]amix=inputs=2:duration=longest:weights=0.5 0.5[a]" '
+                    f'-map 0:v -map "[a]" -c:v copy -c:a aac -shortest '
+                    f'"{output_file}" -y -loglevel error'
+                )
+            
             subprocess.run(cmd, shell=True)
             
             # Update session data with output file
@@ -125,7 +161,7 @@ def process_video(session_id, task_id):
         update_progress(task_id, 0, "failed", f"Error: {str(e)}")
         return False
 
-def process_video_task(session_id):
+def process_video_task(session_id, keep_original_audio=False):
     """Start a background task to process a video"""
     task_id = str(uuid.uuid4())
     
@@ -133,7 +169,7 @@ def process_video_task(session_id):
     update_progress(task_id, 0, "starting", "Starting video processing")
     
     # Start processing in a background thread
-    thread = threading.Thread(target=process_video, args=(session_id, task_id))
+    thread = threading.Thread(target=process_video, args=(session_id, task_id, keep_original_audio))
     thread.daemon = True
     thread.start()
     

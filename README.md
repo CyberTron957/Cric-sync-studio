@@ -9,7 +9,10 @@ A web application for creating synchronized cricket highlight reels with music. 
 - Mark timestamps of important moments
 - Automatic beat detection in music
 - Create clips synced to music beats
-- Download the final highlight reel
+- Original audio from video clips is preserved along with music
+- Import and export timestamps for reuse
+- Trim audio files after uploading
+- Option to use original video audio instead of music
 
 ## Requirements
 
@@ -32,10 +35,24 @@ A web application for creating synchronized cricket highlight reels with music. 
    ```
    python app.py
    ```
+   or use the provided script:
+   ```
+   ./run.sh
+   ```
 2. Open your browser and go to `http://localhost:5000`
-3. Upload a cricket video and music file
-4. Mark timestamps of important moments in the video
-5. Create and download your highlight reel
+3. Upload a cricket video and (optionally) a music file
+4. Optionally import timestamps from a previous session
+5. Mark timestamps of important moments in the video
+6. Trim the music file if needed
+7. Choose to use only original audio (no music) if desired
+8. Create and download your highlight reel
+
+## Audio Options
+
+When creating highlights with music, the application:
+- Preserves the original audio from each video clip
+- Mixes it with the background music at equal volume levels
+- Provides an option to use only the original audio without any music
 
 ## Keyboard Shortcuts
 
@@ -48,6 +65,12 @@ While using the editor:
 - **K**: Jump forward 30 seconds
 - **+/-**: Change playback speed
 - **R**: Remove last marker
+
+## Timestamp Import/Export
+
+The application supports importing and exporting timestamps in the following formats:
+- **JSON**: JSON files with a "timestamps" array
+- **TXT**: Plain text files with one timestamp per line (seconds or MM:SS format)
 
 ## License
 

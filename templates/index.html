@@ -23,24 +23,30 @@
                         <div id="upload-form">
                             <form id="video-upload-form" enctype="multipart/form-data">
                                 <div class="mb-3">
-                                    <label for="video-file" class="form-label">Cricket Video File</label>
+                                    <label for="video-file" class="form-label">Cricket Video File <span class="text-danger">*</span></label>
                                     <input type="file" class="form-control" id="video-file" name="video" accept="video/mp4,video/avi,video/mov" required>
                                     <div class="form-text">Select your cricket video (MP4, AVI, MOV).</div>
                                 </div>
                                 
                                 <div class="mb-3">
-                                    <label for="music-file" class="form-label">Music File</label>
-                                    <input type="file" class="form-control" id="music-file" name="music" accept="audio/mp3,audio/wav" required>
-                                    <div class="form-text">Select a music file (MP3, WAV) to match with video clips.</div>
+                                    <label for="music-file" class="form-label">Music File <small>(Optional)</small></label>
+                                    <input type="file" class="form-control" id="music-file" name="music" accept="audio/mp3,audio/wav">
+                                    <div class="form-text">Select a music file (MP3, WAV) to match with video clips. If not provided, original audio will be used.</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="timestamps-file" class="form-label">Import Timestamps <small>(Optional)</small></label>
+                                    <input type="file" class="form-control" id="timestamps-file" name="timestamps" accept=".json,.txt">
+                                    <div class="form-text">Import timestamps from a previous session (JSON or TXT file).</div>
                                 </div>
                                 
                                 <div class="alert alert-info">
                                     <h5>How it works:</h5>
                                     <ol>
-                                        <li>Upload your cricket video footage and a music track</li>
+                                        <li>Upload your cricket video footage and optional music track</li>
                                         <li>Mark timestamps of important moments while watching the video</li>
-                                        <li>Our app will create clips synced to the beats of your music</li>
-                                        <li>Download your custom cricket highlight reel</li>
+                                        <li>Our app will create clips synced to the beats of your music or keep original audio</li>
+                                        <li>Download your custom cricket highlight reel and optionally the extracted audio</li>
                                     </ol>
                                 </div>
                                 

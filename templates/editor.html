@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body data-session-id="{{ session_id }}">
+<body data-session-id="{{ session_id }}" {% if has_timestamps %}data-has-timestamps="true"{% endif %} {% if has_music %}data-has-music="true"{% endif %}>
     <div class="container-fluid">
         <div class="row">
             <div class="col-md-9 p-0 video-container">
@@ -71,7 +71,14 @@
                     <div class="card-body d-flex flex-column">
                         <div class="mb-3">
                             <h5>Video: {{ video_filename }}</h5>
+                            {% if has_music %}
                             <h5>Music: {{ music_filename }}</h5>
+                            <button id="trim-audio-btn" class="btn btn-sm btn-outline-secondary mt-1">
+                                <i class="fas fa-scissors"></i> Trim Music
+                            </button>
+                            {% else %}
+                            <p class="text-muted">No music file uploaded. Original audio will be used.</p>
+                            {% endif %}
                         </div>
                         
                         <div class="mb-3">
@@ -89,7 +96,14 @@
                         </div>
                         
                         <div class="mt-3">
-                            <h5>Marked Timestamps <span class="badge bg-primary" id="timestamp-count">0</span></h5>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5>Marked Timestamps <span class="badge bg-primary" id="timestamp-count">0</span></h5>
+                                <div>
+                                    <button id="export-timestamps" class="btn btn-sm btn-outline-primary" title="Export timestamps">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                </div>
+                            </div>
                             <div class="timestamp-list" id="timestamps-container">
                                 <div class="text-muted text-center" id="no-timestamps">No timestamps marked yet</div>
                             </div>
@@ -102,6 +116,21 @@
                             <button id="save-timestamps" class="btn btn-outline-primary mb-2 w-100">
                                 <i class="fas fa-save"></i> Save Timestamps
                             </button>
+                            
+                            {% if has_music %}
+                            <div class="card mb-3">
+                                <div class="card-header">Audio Options</div>
+                                <div class="card-body">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="keep-original-audio-check">
+                                        <label class="form-check-label" for="keep-original-audio-check">
+                                            Use original audio only (no music)
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
                             <button id="create-video" class="btn btn-success w-100">
                                 <i class="fas fa-film"></i> Create Highlight Reel
                             </button>
@@ -129,6 +158,51 @@
                     <a href="#" id="download-btn" class="btn btn-success">
                         <i class="fas fa-download"></i> Download Highlight Reel
                     </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Trim Audio Modal -->
+    <div class="modal fade" id="trimAudioModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Trim Music File</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="audio-player-container mb-3">
+                        <audio id="audio-player" class="w-100" controls>
+                            {% if has_music %}
+                            <source src="{{ url_for('get_music', session_id=session_id) }}" type="audio/mpeg">
+                            {% endif %}
+                            Your browser does not support the audio element.
+                        </audio>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="trim-start">Start Time (seconds)</label>
+                        <input type="number" class="form-control" id="trim-start" min="0" step="0.1" value="0">
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="trim-duration">Duration (seconds)</label>
+                        <input type="number" class="form-control" id="trim-duration" min="0.1" step="0.1" value="60">
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <small>
+                            <i class="fas fa-info-circle"></i> Trim your music file to the desired section. 
+                            Use the audio player to find the right start position.
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="trim-audio-submit">
+                        Trim Music
+                    </button>
                 </div>
             </div>
         </div>

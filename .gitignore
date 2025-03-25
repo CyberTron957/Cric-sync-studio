@@ -1,1 +1,30 @@
+# System files
 .DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Application specific files
+uploads/
+processed/
+archive/
+sessions/
+tasks/
+*.db
+*.sqlite
+*.sqlite3
+user_database.db
+session_*.json
+task_*.json
+
+# Other
+.vscode/
+.idea/

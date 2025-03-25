@@ -1,9 +1,11 @@
-# Cricket Video Editor
+# Cricket Video Editor (CricSync)
 
 A web application for creating synchronized cricket highlight reels with music. The application allows users to mark important moments in cricket videos and automatically extracts clips synced to beats in the provided music track.
 
 ## Features
 
+- User authentication with registration and login
+- Freemium subscription model with Free and Pro plans
 - Upload cricket video footage and music tracks
 - Video player with controls for precise navigation
 - Mark timestamps of important moments
@@ -18,10 +20,45 @@ A web application for creating synchronized cricket highlight reels with music. 
 - Preview processed videos before downloading
 - Text overlay capabilities for adding titles, captions, and annotations
 
+## Subscription Plans
+
+### Free Plan
+- Storage: Limited to 3 projects
+- Video Length: Up to 2 minutes per highlight reel
+- Resolution: Up to 720p export
+- Basic Features:
+  - Mark timestamps manually
+  - Basic video cropping (16:9 only)
+- Watermark: cricsync.fun watermark on exported videos
+
+### Pro Plan ($9.99/month)
+- Storage: Up to 20 projects
+- Video Length: Up to 10 minutes per highlight reel
+- Resolution: Up to 1080p export
+- All aspect ratio options
+- Save custom templates for text/graphics
+- Export without watermark
+- Import external timestamps
+
+### Premium Plan (Coming Soon - $19.99/month)
+- Storage: Unlimited projects
+- Video Length: Unlimited length per highlight reel
+- Resolution: Up to 4K export
+- Premium Features:
+  - All Pro features
+  - Automatic highlight detection (AI-assisted)
+  - Special effects library (slow motion, transitions)
+  - Advanced color grading options
+  - Team collaboration (share projects with teammates)
+  - Batch processing (create multiple videos at once)
+  - Custom branding options
+  - Priority processing queue
+
 ## Requirements
 
 - Python 3.7+
 - FFmpeg (must be installed and available in PATH)
+- SQLite3 for user database
 - Required Python packages (see requirements.txt)
 
 ## Installation
@@ -44,22 +81,37 @@ A web application for creating synchronized cricket highlight reels with music. 
    ./run.sh
    ```
 2. Open your browser and go to `http://localhost:5000`
-3. Upload a cricket video and (optionally) a music file
-4. Optionally import timestamps from a previous session
-5. Mark timestamps of important moments in the video
-6. Trim the music file if needed
-7. Add text overlays if desired
-8. Choose an aspect ratio for the output video
-9. Choose to use only original audio (no music) if desired
-10. Create your highlight reel
-11. Preview the processed video to ensure it meets your requirements
-12. Download the final highlight reel
+3. Register a new account or log in
+4. Choose your subscription plan (Free or Pro)
+5. Upload a cricket video and (optionally) a music file
+6. Optionally import timestamps from a previous session
+7. Mark timestamps of important moments in the video
+8. Trim the music file if needed
+9. Add text overlays if desired
+10. Choose an aspect ratio for the output video (based on your subscription level)
+11. Choose to use only original audio (no music) if desired
+12. Create your highlight reel
+13. Preview the processed video to ensure it meets your requirements
+14. Download the final highlight reel
+
+## User Management
+
+- Create an account with username, email, and password
+- Access your projects from the profile page
+- View subscription status and usage information
+- Upgrade from Free to Pro plan at any time
+- Cancel or renew subscriptions from the profile page
 
 ## Aspect Ratio Options
 
-The application offers several aspect ratio options for output videos:
+The application offers several aspect ratio options for output videos based on subscription level:
+
+**Free Plan**:
 - **Original**: Keep the original video aspect ratio
 - **Landscape (16:9)**: Standard widescreen format
+
+**Pro and Premium Plans**:
+- All Free plan options plus:
 - **Portrait (9:16)**: Vertical video format for mobile/social media
 - **Square (1:1)**: Square video for platforms like Instagram
 - **Classic (4:3)**: Traditional TV format

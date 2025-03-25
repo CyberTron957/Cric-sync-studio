@@ -73,6 +73,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Text overlays array
     let textOverlays = [];
     let currentEditingIndex = -1;
+    let currentVideoFrame = null;
+    
+    // Default position coordinates (center of the preview)
+    let defaultXPercent = 0.5;
+    let defaultYPercent = 0.5;
     
     // Initialize video player
     videoPlayer.addEventListener('loadedmetadata', function() {
@@ -83,7 +88,83 @@ document.addEventListener('DOMContentLoaded', function() {
         if (hasTimestamps) {
             fetchTimestamps();
         }
+        
+        // Capture a video frame for text overlay preview
+        captureVideoFrame();
     });
+    
+    // Function to capture video frame for text overlay preview
+    function captureVideoFrame() {
+        // Use the midpoint of the video for the frame
+        const time = videoPlayer.duration / 2;
+        
+        // Set the video frame URL
+        currentVideoFrame = `${window.location.origin}/video_frame/${sessionId}/${time}`;
+        
+        // Preload the image
+        const img = new Image();
+        img.src = currentVideoFrame;
+    }
+    
+    // Initialize draggable text
+    function initDraggableText() {
+        if (!$('#draggable-text-preview').length) return;
+        
+        // Set the video frame as background
+        if (currentVideoFrame) {
+            $('#video-frame-img').attr('src', currentVideoFrame);
+        }
+        
+        // Initialize position at center
+        const container = $('#drag-preview-container');
+        const textElement = $('#draggable-text-preview');
+        
+        // Set the initial position in the center
+        updateTextElementPosition(textElement, defaultXPercent, defaultYPercent);
+        
+        // Make the text draggable
+        textElement.draggable({
+            containment: 'parent',
+            cursor: 'move',
+            drag: function(event, ui) {
+                // Calculate percentage position
+                const containerWidth = container.width();
+                const containerHeight = container.height();
+                
+                const xPercent = ui.position.left / containerWidth;
+                const yPercent = ui.position.top / containerHeight;
+                
+                // Update position display
+                updatePositionDisplay(xPercent, yPercent);
+                
+                // Save the current position
+                defaultXPercent = xPercent;
+                defaultYPercent = yPercent;
+            }
+        });
+        
+        // Initialize position display
+        updatePositionDisplay(defaultXPercent, defaultYPercent);
+    }
+    
+    // Helper function to update text element position
+    function updateTextElementPosition(element, xPercent, yPercent) {
+        const container = $('#drag-preview-container');
+        const x = container.width() * xPercent;
+        const y = container.height() * yPercent;
+        
+        element.css({
+            left: x + 'px',
+            top: y + 'px'
+        });
+    }
+    
+    // Helper function to update position display
+    function updatePositionDisplay(xPercent, yPercent) {
+        $('#coordinates-display').text(
+            `Position: ${Math.round(xPercent * 100)}%, ${Math.round(yPercent * 100)}%`
+        );
+    }
     
     // Audio trim functionality
     if (trimAudioBtn && hasMusic) {
@@ -167,6 +248,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     timestamps = data.timestamps;
                     updateTimestampsList();
                     updateMarkersOnProgress();
+                    
+                    // Load text overlays if available
+                    if (data.text_overlays && data.text_overlays.length > 0) {
+                        textOverlays = data.text_overlays;
+                        updateTextOverlaySummary();
+                    }
                 } else {
                     console.error('Error fetching timestamps:', data.error);
                 }
@@ -309,6 +396,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (manageTextOverlayBtn) {
         manageTextOverlayBtn.addEventListener('click', function() {
             textOverlayModal.show();
+            // Initialize draggable text when modal is shown
+            setTimeout(initDraggableText, 300);
         });
     }
     
@@ -317,16 +406,25 @@ document.addEventListener('DOMContentLoaded', function() {
             // Reset editor fields for a new overlay
             currentEditingIndex = -1;
             overlayTextInput.value = '';
-            overlayPositionSelect.value = 'bottom';
             overlayFontSelect.value = 'Arial';
             overlayFontsizeInput.value = '24';
             overlayFontcolorInput.value = '#ffffff';
             overlayBordercolorInput.value = '#000000';
             overlayBorderwInput.value = '2';
             
+            // Reset position to center
+            defaultXPercent = 0.5;
+            defaultYPercent = 0.5;
+            
+            // Update draggable element
+            if ($('#draggable-text-preview').length) {
+                updateTextElementPosition($('#draggable-text-preview'), defaultXPercent, defaultYPercent);
+                updatePositionDisplay(defaultXPercent, defaultYPercent);
+                $('#draggable-text-preview').text('Your text here');
+            }
+            
             // Show editor
             overlayEditor.classList.remove('d-none');
-            updateOverlayPreview();
             
             // Focus on text input
             overlayTextInput.focus();
@@ -349,13 +447,15 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const overlay = {
                 text: text,
-                position: overlayPositionSelect.value,
+                position: 'custom',
                 style: {
                     font: overlayFontSelect.value,
                     fontsize: parseInt(overlayFontsizeInput.value),
                     fontcolor: overlayFontcolorInput.value,
                     borderw: parseInt(overlayBorderwInput.value),
-                    bordercolor: overlayBordercolorInput.value
+                    bordercolor: overlayBordercolorInput.value,
+                    x_percent: defaultXPercent,
+                    y_percent: defaultYPercent
                 }
             };
             
@@ -376,27 +476,33 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize text overlay preview updates
     if (overlayTextInput) {
-        overlayTextInput.addEventListener('input', updateOverlayPreview);
+        overlayTextInput.addEventListener('input', function() {
+            // Update draggable text preview
+            if ($('#draggable-text-preview').length) {
+                $('#draggable-text-preview').text(this.value || 'Your text here');
+                updateTextStyle();
+            }
+        });
     }
     
     if (overlayFontSelect) {
-        overlayFontSelect.addEventListener('change', updateOverlayPreview);
+        overlayFontSelect.addEventListener('change', updateTextStyle);
     }
     
     if (overlayFontsizeInput) {
-        overlayFontsizeInput.addEventListener('input', updateOverlayPreview);
+        overlayFontsizeInput.addEventListener('input', updateTextStyle);
     }
     
     if (overlayFontcolorInput) {
-        overlayFontcolorInput.addEventListener('input', updateOverlayPreview);
+        overlayFontcolorInput.addEventListener('input', updateTextStyle);
     }
     
     if (overlayBordercolorInput) {
-        overlayBordercolorInput.addEventListener('input', updateOverlayPreview);
+        overlayBordercolorInput.addEventListener('input', updateTextStyle);
     }
     
     if (overlayBorderwInput) {
-        overlayBorderwInput.addEventListener('input', updateOverlayPreview);
+        overlayBorderwInput.addEventListener('input', updateTextStyle);
     }
     
     if (applyTextOverlaysBtn) {
@@ -738,35 +844,37 @@ document.addEventListener('DOMContentLoaded', function() {
         ratioPreview.classList.add(className);
     }
     
-    // Function to update overlay preview
-    function updateOverlayPreview() {
-        if (!overlayPreviewText) return;
+    // Function to update text style for draggable preview
+    function updateTextStyle() {
+        const textElement = $('#draggable-text-preview');
+        if (!textElement.length) return;
         
-        const text = overlayTextInput.value.trim() || 'Preview Text';
         const fontSize = overlayFontsizeInput.value + 'px';
         const fontColor = overlayFontcolorInput.value;
         const borderWidth = overlayBorderwInput.value + 'px';
         const borderColor = overlayBordercolorInput.value;
         
-        overlayPreviewText.textContent = text;
-        overlayPreviewText.style.fontSize = fontSize;
-        overlayPreviewText.style.color = fontColor;
+        textElement.css({
+            'font-size': fontSize,
+            'color': fontColor
+        });
         
+        // Apply text shadow for border effect
         if (parseInt(overlayBorderwInput.value) > 0) {
-            overlayPreviewText.style.textShadow = `
+            textElement.css('text-shadow', `
                 0px 0px ${borderWidth} ${borderColor},
                 0px 0px ${borderWidth} ${borderColor},
                 0px 0px ${borderWidth} ${borderColor},
                 0px 0px ${borderWidth} ${borderColor}
-            `;
+            `);
         } else {
-            overlayPreviewText.style.textShadow = 'none';
+            textElement.css('text-shadow', 'none');
         }
         
         // Try to update font family if supported
         try {
             const fontFamily = overlayFontSelect.value.replace(/-/g, ' ');
-            overlayPreviewText.style.fontFamily = fontFamily;
+            textElement.css('font-family', fontFamily);
         } catch (e) {
             console.log('Error setting font family:', e);
         }
@@ -790,11 +898,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const item = document.createElement('div');
             item.className = 'overlay-item';
             
-            // Find position label
-            let positionLabel = overlay.position;
-            const positionOption = overlayPositionSelect.querySelector(`option[value="${overlay.position}"]`);
-            if (positionOption) {
-                positionLabel = positionOption.textContent;
+            // Get position description
+            let positionLabel = '';
+            if (overlay.position === 'custom' && overlay.style && overlay.style.x_percent !== undefined) {
+                positionLabel = `Position: ${Math.round(overlay.style.x_percent * 100)}%, ${Math.round(overlay.style.y_percent * 100)}%`;
+            } else {
+                positionLabel = `Position: ${overlay.position}`;
             }
             
             item.innerHTML = `
@@ -836,7 +945,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Set form values
         overlayTextInput.value = overlay.text;
-        overlayPositionSelect.value = overlay.position;
         
         // Set style values if they exist
         if (overlay.style) {
@@ -845,11 +953,24 @@ document.addEventListener('DOMContentLoaded', function() {
             if (overlay.style.fontcolor) overlayFontcolorInput.value = overlay.style.fontcolor;
             if (overlay.style.borderw) overlayBorderwInput.value = overlay.style.borderw;
             if (overlay.style.bordercolor) overlayBordercolorInput.value = overlay.style.bordercolor;
+            
+            // Set position if custom
+            if (overlay.position === 'custom' && overlay.style.x_percent !== undefined) {
+                defaultXPercent = overlay.style.x_percent;
+                defaultYPercent = overlay.style.y_percent;
+            }
         }
         
-        // Show editor and update preview
+        // Update draggable text preview
+        if ($('#draggable-text-preview').length) {
+            $('#draggable-text-preview').text(overlay.text);
+            updateTextElementPosition($('#draggable-text-preview'), defaultXPercent, defaultYPercent);
+            updatePositionDisplay(defaultXPercent, defaultYPercent);
+            updateTextStyle();
+        }
+        
+        // Show editor
         overlayEditor.classList.remove('d-none');
-        updateOverlayPreview();
         
         // Scroll to editor
         overlayEditor.scrollIntoView({ behavior: 'smooth' });
@@ -876,5 +997,19 @@ document.addEventListener('DOMContentLoaded', function() {
             const count = textOverlays.length;
             textOverlaySummary.innerHTML = `<small class="text-success">${count} text overlay${count !== 1 ? 's' : ''} added</small>`;
         }
+    }
+    
+    // Toggle advanced settings
+    if (document.getElementById('toggle-advanced-settings')) {
+        document.getElementById('toggle-advanced-settings').addEventListener('click', function() {
+            const advancedSettings = document.getElementById('advanced-settings');
+            if (advancedSettings.style.display === 'block') {
+                advancedSettings.style.display = 'none';
+                this.innerHTML = '<i class="fas fa-cog"></i> Advanced Settings';
+            } else {
+                advancedSettings.style.display = 'block';
+                this.innerHTML = '<i class="fas fa-cog"></i> Hide Advanced Settings';
+            }
+        });
     }
 }); 

@@ -30,7 +30,8 @@ TEXT_POSITIONS = {
     'top_right': {'x': 'w-tw-20', 'y': '20'},
     'bottom_left': {'x': '20', 'y': 'h-th-20'},
     'bottom_right': {'x': 'w-tw-20', 'y': 'h-th-20'},
-    'center': {'x': '(w-text_w)/2', 'y': '(h-text_h)/2'}
+    'center': {'x': '(w-text_w)/2', 'y': '(h-text_h)/2'},
+    'custom': {'x': 'x_percent*w', 'y': 'y_percent*h'} # New custom position based on percentages
 }
 
 # Default text style
@@ -217,6 +218,18 @@ def create_text_overlay_filter(text, position, style=None):
     style = style or {}
     text_style = {**DEFAULT_TEXT_STYLE, **style}
     
+    # Check if custom position is provided
+    x_pos = pos['x']
+    y_pos = pos['y']
+    
+    # If custom position with percentages is provided
+    if position == 'custom' and 'x_percent' in style and 'y_percent' in style:
+        x_percent = float(style['x_percent'])
+        y_percent = float(style['y_percent'])
+        # Convert percentage values to ffmpeg expressions
+        x_pos = f"{x_percent}*w" 
+        y_pos = f"{y_percent}*h"
+    
     # Sanitize text
     safe_text = sanitize_text(text)
     
@@ -228,7 +241,7 @@ def create_text_overlay_filter(text, position, style=None):
         f":fontcolor={text_style['fontcolor']}"
         f":borderw={text_style['borderw']}"
         f":bordercolor={text_style['bordercolor']}"
-        f":x={pos['x']}:y={pos['y']}"
+        f":x={x_pos}:y={y_pos}"
         f":box=1:boxcolor=black@0.5"
     )
     

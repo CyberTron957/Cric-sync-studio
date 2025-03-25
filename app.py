@@ -7,6 +7,8 @@ import sqlite3
 from werkzeug.utils import secure_filename
 from functools import wraps
 from datetime import datetime
+import tempfile
+import subprocess
 
 # Create upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -662,6 +664,7 @@ def save_timestamps():
     data = request.get_json()
     session_id = data.get('session_id')
     timestamps = data.get('timestamps', [])
+    text_overlays = data.get('text_overlays', [])
     
     if not session_id:
         return jsonify({'error': 'No session ID provided'}), 400
@@ -677,6 +680,10 @@ def save_timestamps():
     
     # Update timestamps
     session_data['timestamps'] = timestamps
+    
+    # Update text overlays if provided
+    if text_overlays:
+        session_data['text_overlays'] = text_overlays
     
     # Save updated session data
     with open(session_file, 'w') as f:
@@ -1131,11 +1138,43 @@ def get_timestamps(session_id):
     with open(session_file, 'r') as f:
         session_data = json.load(f)
     
-    # Return timestamps if they exist
+    # Return timestamps and text overlays if they exist
     return jsonify({
         'success': True,
-        'timestamps': session_data.get('timestamps', [])
+        'timestamps': session_data.get('timestamps', []),
+        'text_overlays': session_data.get('text_overlays', [])
     })
 
+@app.route('/video_frame/<session_id>/<time>')
+def get_video_frame(session_id, time):
+    """Get a video frame at a specific time for text overlay preview"""
+    # Check if session exists
+    session_file = f"session_{session_id}.json"
+    if not os.path.exists(session_file):
+        return jsonify({'error': 'Session not found'}), 404
+    
+    # Load session data
+    with open(session_file, 'r') as f:
+        session_data = json.load(f)
+    
+    video_path = session_data['video_path']
+    
+    # Create a temporary directory for the frame
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Extract the frame at the specified time
+        frame_path = os.path.join(temp_dir, 'frame.jpg')
+        
+        # Use FFmpeg to extract the frame
+        try:
+            cmd = f'ffmpeg -ss {time} -i "{video_path}" -vframes 1 -q:v 2 "{frame_path}" -y -loglevel error'
+            subprocess.run(cmd, shell=True)
+            
+            if os.path.exists(frame_path):
+                return send_from_directory(temp_dir, 'frame.jpg')
+            else:
+                return jsonify({'error': 'Failed to extract frame'}), 500
+        except Exception as e:
+            return jsonify({'error': f'Error extracting frame: {str(e)}'}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True)  
+    app.run(debug=True, port=5120)  

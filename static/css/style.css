@@ -264,4 +264,113 @@ kbd {
     #textOverlayModal .modal-lg {
         max-width: 700px;
     }
+}
+
+/* Video frame preview for text overlay positioning */
+.video-frame-preview {
+    background-color: #000;
+    position: relative;
+    width: 100%;
+    height: 300px;
+    border: 1px solid #dee2e6;
+    margin-bottom: 15px;
+    overflow: hidden;
+    cursor: default;
+}
+
+.video-frame-preview img {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+}
+
+/* Draggable text overlays */
+.draggable-text {
+    position: absolute;
+    padding: 5px;
+    cursor: move;
+    user-select: none;
+    z-index: 10;
+    transform: translate(-50%, -50%);
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
+    max-width: 80%;
+}
+
+.draggable-text.ui-draggable-dragging {
+    opacity: 0.8;
+}
+
+/* Position indicators */
+.position-indicator {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: rgba(255, 255, 255, 0.8);
+    border: 1px solid #000;
+    border-radius: 50%;
+    z-index: 11;
+}
+
+/* Style for overlay items in the list */
+.overlay-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 5px;
+}
+
+.overlay-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.overlay-item-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
+}
+
+.overlay-item-position {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.overlay-actions {
+    display: flex;
+    gap: 5px;
+}
+
+@media (min-width: 992px) {
+    #textOverlayModal .modal-lg {
+        max-width: 80%;
+    }
+}
+
+.custom-coordinates-display {
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 5px;
+}
+
+/* Advanced settings toggle */
+.advanced-settings-toggle {
+    cursor: pointer;
+    color: #0d6efd;
+    text-decoration: underline;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.advanced-settings {
+    display: none;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    margin-bottom: 15px;
 } 

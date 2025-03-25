@@ -331,6 +331,7 @@ def process_video():
     data = request.get_json()
     session_id = data.get('session_id')
     keep_original_audio = data.get('keep_original_audio', False)
+    crop_option = data.get('crop_option', 'original')
     
     if not session_id:
         return jsonify({'error': 'No session ID provided'}), 400
@@ -352,9 +353,14 @@ def process_video():
     if not keep_original_audio and 'music_path' not in session_data:
         return jsonify({'error': 'No music file available for synchronization'}), 400
     
+    # Check if crop option is valid
+    from processing import ASPECT_RATIOS
+    if crop_option not in ASPECT_RATIOS:
+        return jsonify({'error': 'Invalid crop option'}), 400
+    
     # Start processing in a background task
     from processing import process_video_task
-    task_id = process_video_task(session_id, keep_original_audio)
+    task_id = process_video_task(session_id, keep_original_audio, crop_option)
     
     return jsonify({
         'success': True,
@@ -374,13 +380,102 @@ def check_progress(task_id):
 
 @app.route('/download/<session_id>')
 def download_video(session_id):
-    # Check if processed file exists
-    output_file = os.path.join(app.config['PROCESSED_FOLDER'], f"{session_id}_output.mp4")
+    # Check if session exists
+    session_file = f"session_{session_id}.json"
+    if not os.path.exists(session_file):
+        return jsonify({'error': 'Session not found'}), 404
+    
+    # Load session data
+    with open(session_file, 'r') as f:
+        session_data = json.load(f)
+    
+    # Check if output_file is directly specified in session
+    if 'output_file' in session_data:
+        output_file = session_data['output_file']
+        if os.path.exists(output_file):
+            return send_from_directory(
+                os.path.dirname(output_file), 
+                os.path.basename(output_file), 
+                as_attachment=True
+            )
+    
+    # Fallback: try to find file with crop option if specified
+    crop_option = session_data.get('crop_option', 'original')
+    crop_suffix = f"_{crop_option.replace(':', '_')}" if crop_option != 'original' else ""
+    output_file = os.path.join(app.config['PROCESSED_FOLDER'], f"{session_id}{crop_suffix}_output.mp4")
     
     if not os.path.exists(output_file):
-        return jsonify({'error': 'Processed file not found'}), 404
+        # Try the original filename as last resort
+        output_file = os.path.join(app.config['PROCESSED_FOLDER'], f"{session_id}_output.mp4")
+        if not os.path.exists(output_file):
+            return jsonify({'error': 'Processed file not found'}), 404
     
-    return send_from_directory(app.config['PROCESSED_FOLDER'], f"{session_id}_output.mp4", as_attachment=True)
+    return send_from_directory(
+        app.config['PROCESSED_FOLDER'], 
+        os.path.basename(output_file), 
+        as_attachment=True
+    )
+
+@app.route('/crop_options', methods=['GET'])
+def get_crop_options():
+    """Return the available crop options"""
+    from processing import ASPECT_RATIOS
+    
+    # Create a list of options with labels
+    options = [
+        {'value': 'original', 'label': 'Original Aspect Ratio'},
+        {'value': '16:9', 'label': 'Landscape (16:9)'},
+        {'value': '9:16', 'label': 'Portrait (9:16)'},
+        {'value': '1:1', 'label': 'Square (1:1)'},
+        {'value': '4:3', 'label': 'Classic (4:3)'},
+        {'value': '1:1_in_9:16', 'label': 'Square in Vertical (1:1 in 9:16)'}
+    ]
+    
+    return jsonify({
+        'success': True,
+        'options': options
+    })
+
+@app.route('/preview/<session_id>')
+def preview_video(session_id):
+    """Stream the processed video for preview"""
+    # Check if session exists
+    session_file = f"session_{session_id}.json"
+    if not os.path.exists(session_file):
+        return jsonify({'error': 'Session not found'}), 404
+    
+    # Load session data
+    with open(session_file, 'r') as f:
+        session_data = json.load(f)
+    
+    # Get the output file path
+    output_file = None
+    
+    # Check if output_file is directly specified in session
+    if 'output_file' in session_data and os.path.exists(session_data['output_file']):
+        output_file = session_data['output_file']
+    else:
+        # Try to find file with crop option if specified
+        crop_option = session_data.get('crop_option', 'original')
+        crop_suffix = f"_{crop_option.replace(':', '_')}" if crop_option != 'original' else ""
+        potential_file = os.path.join(app.config['PROCESSED_FOLDER'], f"{session_id}{crop_suffix}_output.mp4")
+        
+        if os.path.exists(potential_file):
+            output_file = potential_file
+        else:
+            # Try the original filename as last resort
+            potential_file = os.path.join(app.config['PROCESSED_FOLDER'], f"{session_id}_output.mp4")
+            if os.path.exists(potential_file):
+                output_file = potential_file
+    
+    if output_file is None:
+        return jsonify({'error': 'Processed video not found'}), 404
+    
+    # Stream the video file for preview
+    return send_from_directory(
+        os.path.dirname(output_file),
+        os.path.basename(output_file)
+    )
 
 if __name__ == '__main__':
     app.run(debug=True)  

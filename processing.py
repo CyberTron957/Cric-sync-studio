@@ -10,6 +10,16 @@ import tempfile
 # Global dictionary to store task progress
 tasks = {}
 
+# Aspect ratio definitions
+ASPECT_RATIOS = {
+    'original': None,  # Keep original aspect ratio
+    '16:9': (16, 9),
+    '9:16': (9, 16),
+    '1:1': (1, 1),
+    '4:3': (4, 3),
+    '1:1_in_9:16': 'special'  # Special case for 1:1 with 9:16 enclosure
+}
+
 def detect_beats(music_file):
     """Detect beats in the music file and return the average beat duration"""
     try:
@@ -58,7 +68,102 @@ def trim_audio_file(input_file, output_file, start_time, duration):
         print(f"Error trimming audio: {str(e)}")
         return False
 
-def process_video(session_id, task_id, keep_original_audio=False):
+def get_video_dimensions(video_path):
+    """Get video dimensions using FFprobe"""
+    try:
+        cmd = (
+            f'ffprobe -v error -select_streams v:0 -show_entries stream=width,height '
+            f'-of csv=p=0:s=x "{video_path}"'
+        )
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"ffprobe command failed: {result.stderr}")
+        
+        dimensions = result.stdout.strip().split('x')
+        return int(dimensions[0]), int(dimensions[1])
+    except Exception as e:
+        print(f"Error getting video dimensions: {str(e)}")
+        return None, None
+
+def calculate_crop_params(width, height, aspect_ratio):
+    """Calculate crop parameters based on video dimensions and target aspect ratio"""
+    if aspect_ratio is None:
+        # Keep original aspect ratio
+        return None
+    
+    if aspect_ratio == 'special':
+        # Special case: 1:1 with 9:16 enclosure
+        # This means creating a 1:1 crop centered in a 9:16 frame with black padding
+        if width >= height:
+            # Landscape or square video - crop to a square first
+            new_width = height
+            new_height = height
+            x_offset = int((width - new_width) / 2)
+            y_offset = 0
+            
+            # Calculate padding for 9:16 aspect ratio
+            square_to_vertical = new_width * 16 / 9  # Calculate the height needed for 9:16
+            padding = int((square_to_vertical - new_height) / 2)
+            
+            return {
+                'crop': f"crop={new_width}:{new_height}:{x_offset}:{y_offset}",
+                'pad': f"pad={new_width}:{int(square_to_vertical)}:0:{padding}:black"
+            }
+        else:
+            # Portrait video - check if it's already close to 9:16
+            current_ratio = height / width
+            target_ratio = 16 / 9
+            
+            if abs(current_ratio - target_ratio) < 0.1:
+                # Already close to 9:16, just crop to square in the center
+                new_width = width
+                new_height = width
+                x_offset = 0
+                y_offset = int((height - new_height) / 2)
+                
+                return {
+                    'crop': f"crop={new_width}:{new_height}:{x_offset}:{y_offset}",
+                    'pad': None  # No padding needed, it already fits 9:16
+                }
+            else:
+                # Not 9:16, crop to square and add padding
+                new_width = width
+                new_height = width
+                x_offset = 0
+                y_offset = int((height - new_height) / 2)
+                
+                # Calculate padding for 9:16 aspect ratio
+                square_to_vertical = new_width * 16 / 9  # Calculate the height needed for 9:16
+                padding = int((square_to_vertical - new_height) / 2)
+                
+                return {
+                    'crop': f"crop={new_width}:{new_height}:{x_offset}:{y_offset}",
+                    'pad': f"pad={new_width}:{int(square_to_vertical)}:0:{padding}:black"
+                }
+    
+    # Standard aspect ratio calculation
+    target_ratio = aspect_ratio[0] / aspect_ratio[1]
+    current_ratio = width / height
+    
+    if current_ratio > target_ratio:
+        # Video is wider than target, crop width
+        new_width = int(height * target_ratio)
+        new_height = height
+        x_offset = int((width - new_width) / 2)
+        y_offset = 0
+    else:
+        # Video is taller than target, crop height
+        new_width = width
+        new_height = int(width / target_ratio)
+        x_offset = 0
+        y_offset = int((height - new_height) / 2)
+    
+    return {
+        'crop': f"crop={new_width}:{new_height}:{x_offset}:{y_offset}",
+        'pad': None
+    }
+
+def process_video(session_id, task_id, keep_original_audio=False, crop_option='original'):
     """Process a video based on session data"""
     try:
         # Load session data
@@ -74,6 +179,16 @@ def process_video(session_id, task_id, keep_original_audio=False):
         if not timestamps:
             update_progress(task_id, 0, "failed", "No timestamps found")
             return False
+        
+        # Get video dimensions for crop calculation
+        width, height = get_video_dimensions(video_path)
+        if width is None or height is None:
+            update_progress(task_id, 0, "failed", "Could not determine video dimensions")
+            return False
+        
+        # Get aspect ratio configuration
+        aspect_ratio = ASPECT_RATIOS.get(crop_option)
+        crop_params = calculate_crop_params(width, height, aspect_ratio) if aspect_ratio else None
         
         if keep_original_audio:
             update_progress(task_id, 10, "processing", "Using original audio from clips")
@@ -103,11 +218,32 @@ def process_video(session_id, task_id, keep_original_audio=False):
                     
                 temp_clip = os.path.join(temp_dir, f"temp_clip_{i}.mp4")
                 
-                # Extract video clip with its original audio
-                video_cmd = (
-                    f'ffmpeg -i "{video_path}" -ss {start_time} -t {clip_duration} '
-                    f'-c:v libx264 -c:a aac -y "{temp_clip}" -loglevel error'
-                )
+                # Build the FFmpeg command based on crop option
+                if crop_params:
+                    # Extract video clip with its original audio and apply cropping
+                    video_filters = []
+                    
+                    # Add crop filter if it exists
+                    if crop_params.get('crop'):
+                        video_filters.append(crop_params['crop'])
+                    
+                    # Add padding filter if it exists (for special 1:1 in 9:16 case)
+                    if crop_params.get('pad'):
+                        video_filters.append(crop_params['pad'])
+                    
+                    # Join all filters with comma
+                    filter_chain = ','.join(video_filters)
+                    
+                    video_cmd = (
+                        f'ffmpeg -i "{video_path}" -ss {start_time} -t {clip_duration} '
+                        f'-vf "{filter_chain}" -c:v libx264 -c:a aac -y "{temp_clip}" -loglevel error'
+                    )
+                else:
+                    # No cropping, just extract with original dimensions
+                    video_cmd = (
+                        f'ffmpeg -i "{video_path}" -ss {start_time} -t {clip_duration} '
+                        f'-c:v libx264 -c:a aac -y "{temp_clip}" -loglevel error'
+                    )
                 
                 subprocess.run(video_cmd, shell=True)
                 temp_clips.append(temp_clip)
@@ -129,7 +265,9 @@ def process_video(session_id, task_id, keep_original_audio=False):
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
                 
-            output_file = os.path.join(output_dir, f"{session_id}_output.mp4")
+            # Add crop info to filename
+            crop_suffix = f"_{crop_option.replace(':', '_')}" if crop_option != 'original' else ""
+            output_file = os.path.join(output_dir, f"{session_id}{crop_suffix}_output.mp4")
             
             # Combine clips with appropriate audio
             if keep_original_audio:
@@ -151,6 +289,7 @@ def process_video(session_id, task_id, keep_original_audio=False):
             
             # Update session data with output file
             session_data['output_file'] = output_file
+            session_data['crop_option'] = crop_option
             with open(session_file, 'w') as f:
                 json.dump(session_data, f)
             
@@ -161,7 +300,7 @@ def process_video(session_id, task_id, keep_original_audio=False):
         update_progress(task_id, 0, "failed", f"Error: {str(e)}")
         return False
 
-def process_video_task(session_id, keep_original_audio=False):
+def process_video_task(session_id, keep_original_audio=False, crop_option='original'):
     """Start a background task to process a video"""
     task_id = str(uuid.uuid4())
     
@@ -169,7 +308,7 @@ def process_video_task(session_id, keep_original_audio=False):
     update_progress(task_id, 0, "starting", "Starting video processing")
     
     # Start processing in a background thread
-    thread = threading.Thread(target=process_video, args=(session_id, task_id, keep_original_audio))
+    thread = threading.Thread(target=process_video, args=(session_id, task_id, keep_original_audio, crop_option))
     thread.daemon = True
     thread.start()
     

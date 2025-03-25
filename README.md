@@ -13,6 +13,9 @@ A web application for creating synchronized cricket highlight reels with music. 
 - Import and export timestamps for reuse
 - Trim audio files after uploading
 - Option to use original video audio instead of music
+- Video cropping in multiple aspect ratios (16:9, 9:16, 1:1, 4:3)
+- Special 1:1 crop with 9:16 enclosure (square video centered in vertical format)
+- Preview processed videos before downloading
 
 ## Requirements
 
@@ -44,8 +47,23 @@ A web application for creating synchronized cricket highlight reels with music. 
 4. Optionally import timestamps from a previous session
 5. Mark timestamps of important moments in the video
 6. Trim the music file if needed
-7. Choose to use only original audio (no music) if desired
-8. Create and download your highlight reel
+7. Choose an aspect ratio for the output video
+8. Choose to use only original audio (no music) if desired
+9. Create your highlight reel
+10. Preview the processed video to ensure it meets your requirements
+11. Download the final highlight reel
+
+## Aspect Ratio Options
+
+The application offers several aspect ratio options for output videos:
+- **Original**: Keep the original video aspect ratio
+- **Landscape (16:9)**: Standard widescreen format
+- **Portrait (9:16)**: Vertical video format for mobile/social media
+- **Square (1:1)**: Square video for platforms like Instagram
+- **Classic (4:3)**: Traditional TV format
+- **Square in Vertical (1:1 in 9:16)**: Square video centered in a 9:16 frame with black padding
+
+All cropping operations maintain the center of the frame by default.
 
 ## Audio Options
 

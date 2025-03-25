@@ -26,6 +26,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const processingMessage = document.getElementById('processing-message');
     const processingComplete = document.getElementById('processing-complete');
     const downloadBtn = document.getElementById('download-btn');
+    const cropOptionSelect = document.getElementById('crop-option');
+    const ratioPreview = document.getElementById('ratio-preview');
+    
+    // Preview video elements
+    const previewVideoModal = new bootstrap.Modal(document.getElementById('previewVideoModal'));
+    const previewPlayer = document.getElementById('preview-player');
+    const previewDownloadBtn = document.getElementById('preview-download-btn');
     
     // Audio trim elements
     const trimAudioBtn = document.getElementById('trim-audio-btn');
@@ -289,6 +296,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
+    // Initialize ratio preview
+    if (cropOptionSelect) {
+        updateRatioPreview(cropOptionSelect.value);
+        
+        cropOptionSelect.addEventListener('change', function() {
+            updateRatioPreview(this.value);
+        });
+    }
+    
     // Functions
     
     function togglePlayPause() {
@@ -476,8 +492,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Get option
+        // Get options
         const keepOriginalAudio = keepOriginalAudioCheck && keepOriginalAudioCheck.checked;
+        const cropOption = cropOptionSelect ? cropOptionSelect.value : 'original';
         
         // Save timestamps first
         saveTimestamps(true)
@@ -490,7 +507,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 body: JSON.stringify({
                     session_id: sessionId,
-                    keep_original_audio: keepOriginalAudio
+                    keep_original_audio: keepOriginalAudio,
+                    crop_option: cropOption
                 })
             });
         })
@@ -526,7 +544,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (data.status === 'completed') {
                         clearInterval(interval);
                         processingComplete.classList.remove('d-none');
+                        
+                        // Setup download button
                         downloadBtn.href = `/download/${sessionId}`;
+                        
+                        // Add preview button to the processing modal
+                        const previewBtn = document.createElement('button');
+                        previewBtn.className = 'btn btn-primary me-2';
+                        previewBtn.innerHTML = '<i class="fas fa-eye"></i> Preview Video';
+                        previewBtn.addEventListener('click', openVideoPreview);
+                        
+                        // Add preview button before download button
+                        if (!document.getElementById('preview-btn')) {
+                            previewBtn.id = 'preview-btn';
+                            processingComplete.insertBefore(previewBtn, downloadBtn);
+                        }
                     } else if (data.status === 'failed') {
                         clearInterval(interval);
                         processingMessage.textContent = `Error: ${data.message}`;
@@ -537,5 +569,70 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.error('Error polling progress:', error);
                 });
         }, 1000);
+    }
+    
+    // Function to open the video preview modal
+    function openVideoPreview() {
+        // Set the source of the preview player
+        const videoSrc = `/preview/${sessionId}`;
+        
+        if (previewPlayer) {
+            // Clear the previous source
+            while (previewPlayer.firstChild) {
+                previewPlayer.removeChild(previewPlayer.firstChild);
+            }
+            
+            // Create and add new source element
+            const source = document.createElement('source');
+            source.src = videoSrc;
+            source.type = 'video/mp4';
+            previewPlayer.appendChild(source);
+            
+            // Load and play the video
+            previewPlayer.load();
+            
+            // Setup download button
+            if (previewDownloadBtn) {
+                previewDownloadBtn.href = `/download/${sessionId}`;
+            }
+            
+            // Show the modal
+            previewVideoModal.show();
+            
+            // Auto-play the preview when ready
+            previewPlayer.addEventListener('loadedmetadata', function() {
+                previewPlayer.play().catch(e => {
+                    console.log('Auto-play prevented by browser:', e);
+                });
+            });
+        }
+    }
+    
+    // Handle closing the preview modal - pause the video
+    if (document.getElementById('previewVideoModal')) {
+        document.getElementById('previewVideoModal').addEventListener('hidden.bs.modal', function () {
+            if (previewPlayer) {
+                previewPlayer.pause();
+            }
+        });
+    }
+    
+    // Function to update the aspect ratio preview
+    function updateRatioPreview(option) {
+        if (!ratioPreview) return;
+        
+        // Remove all existing ratio classes
+        ratioPreview.classList.remove(
+            'ratio-original', 
+            'ratio-16-9', 
+            'ratio-9-16', 
+            'ratio-1-1', 
+            'ratio-4-3', 
+            'ratio-1-1-in-9-16'
+        );
+        
+        // Add the appropriate class based on selection
+        const className = 'ratio-' + option.replace(':', '-').replace('_', '-');
+        ratioPreview.classList.add(className);
     }
 }); 

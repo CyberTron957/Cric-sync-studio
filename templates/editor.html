@@ -131,6 +131,33 @@
                             </div>
                             {% endif %}
                             
+                            <div class="card mb-3">
+                                <div class="card-header">Video Crop Options</div>
+                                <div class="card-body">
+                                    <div class="form-group">
+                                        <label for="crop-option">Select Aspect Ratio:</label>
+                                        <select class="form-select" id="crop-option">
+                                            <option value="original" selected>Original Aspect Ratio</option>
+                                            <option value="16:9">Landscape (16:9)</option>
+                                            <option value="9:16">Portrait (9:16)</option>
+                                            <option value="1:1">Square (1:1)</option>
+                                            <option value="4:3">Classic (4:3)</option>
+                                            <option value="1:1_in_9:16">Square in Vertical (1:1 in 9:16)</option>
+                                        </select>
+                                    </div>
+                                    <div class="mt-2 text-center">
+                                        <div class="ratio-preview" id="ratio-preview">
+                                            <div class="ratio-inner-box"></div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <small class="text-muted">
+                                            Preview shows approximate crop shape. Final result maintains center of frame.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <button id="create-video" class="btn btn-success w-100">
                                 <i class="fas fa-film"></i> Create Highlight Reel
                             </button>
@@ -155,6 +182,7 @@
                     <p id="processing-message">Starting video processing...</p>
                 </div>
                 <div class="modal-footer d-none" id="processing-complete">
+                    <!-- Preview button will be inserted here by JavaScript -->
                     <a href="#" id="download-btn" class="btn btn-success">
                         <i class="fas fa-download"></i> Download Highlight Reel
                     </a>
@@ -203,6 +231,32 @@
                     <button type="button" class="btn btn-primary" id="trim-audio-submit">
                         Trim Music
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Preview Video Modal -->
+    <div class="modal fade" id="previewVideoModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Preview Highlight Reel</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="video-preview-container">
+                        <video id="preview-player" class="w-100" controls>
+                            <source src="" type="video/mp4">
+                            Your browser does not support HTML5 video.
+                        </video>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <a href="#" id="preview-download-btn" class="btn btn-success">
+                        <i class="fas fa-download"></i> Download Highlight Reel
+                    </a>
                 </div>
             </div>
         </div>

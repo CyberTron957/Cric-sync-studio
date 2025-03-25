@@ -301,8 +301,8 @@ def login():
             
             conn.close()
             
-            # Get the next URL if provided
-            next_url = request.args.get('next', url_for('index'))
+            # Get the next URL if provided, otherwise redirect to dashboard
+            next_url = request.args.get('next', url_for('dashboard'))
             
             flash('Login successful!', 'success')
             return redirect(next_url)
@@ -319,7 +319,7 @@ def logout():
     session.pop('user_id', None)
     session.pop('username', None)
     flash('You have been logged out successfully', 'success')
-    return redirect(url_for('index'))
+    return redirect(url_for('home'))
 
 @app.route('/profile')
 @login_required
@@ -419,14 +419,22 @@ def get_subscription_limit(subscription_type, limit_type):
     return subscription.get(limit_type, limits['free'][limit_type])
 
 @app.route('/')
-def index():
+def home():
+    # If user is already logged in, redirect to dashboard
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return render_template('home.html')
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
     return render_template('index.html')
 
-# Add a route middleware to enforce login for all pages except login/register
+# Update the middleware to handle the new routing structure
 @app.before_request
 def require_login():
     # Public routes that don't require login
-    public_routes = ['login', 'register', 'static', 'index']
+    public_routes = ['login', 'register', 'static', 'home']
     
     # Check if the route is public or if user is logged in
     if request.endpoint not in public_routes and 'user_id' not in session:
@@ -454,7 +462,7 @@ def process_payment():
         conn.commit()
         
         flash('Payment successful! Welcome to the Pro plan.', 'success')
-        return redirect(url_for('index'))
+        return redirect(url_for('dashboard'))
         
     except Exception as e:
         conn.rollback()

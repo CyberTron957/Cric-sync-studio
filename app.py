@@ -1,13 +1,16 @@
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify, session, flash
 import os
 import hashlib
 import json
 import uuid
+import sqlite3
 from werkzeug.utils import secure_filename
+from functools import wraps
 
 # Create upload folder
 UPLOAD_FOLDER = 'uploads'
 PROCESSED_FOLDER = 'processed'
+USER_DB = 'user_database.db'
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mp3', 'wav', 'json', 'txt'}
 
 # Create directories if they don't exist
@@ -18,6 +21,86 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['PROCESSED_FOLDER'] = PROCESSED_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max upload size
+app.secret_key = os.environ.get('SECRET_KEY', 'cricket_video_editor_secret_key')  # Secret key for sessions
+
+# Initialize user database
+def init_db():
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    
+    # Check if users table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    table_exists = cursor.fetchone() is not None
+    
+    if not table_exists:
+        # Create users table if it doesn't exist
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            subscription_type TEXT DEFAULT 'free',
+            subscription_status TEXT DEFAULT 'active',
+            subscription_end_date TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+    else:
+        # Check if subscription_type column exists
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'subscription_type' not in columns:
+            # Add subscription_type column if it doesn't exist
+            cursor.execute('ALTER TABLE users ADD COLUMN subscription_type TEXT DEFAULT "free"')
+        
+        if 'subscription_status' not in columns:
+            # Add subscription_status column if it doesn't exist
+            cursor.execute('ALTER TABLE users ADD COLUMN subscription_status TEXT DEFAULT "active"')
+        
+        if 'subscription_end_date' not in columns:
+            # Add subscription_end_date column if it doesn't exist
+            cursor.execute('ALTER TABLE users ADD COLUMN subscription_end_date TIMESTAMP')
+    
+    # Create user_sessions table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+    ''')
+    
+    # Create subscription_history table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS subscription_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        subscription_type TEXT NOT NULL,
+        start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        end_date TIMESTAMP,
+        payment_status TEXT,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+    ''')
+    conn.commit()
+    conn.close()
+
+# Initialize the database when app starts
+init_db()
+
+# Login required decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in to access this page.', 'warning')
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -32,9 +115,281 @@ def get_video_hash(video_path):
             buf = f.read(65536)
     return hasher.hexdigest()
 
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        # Validate input
+        if not username or not email or not password:
+            flash('All fields are required', 'danger')
+            return render_template('register.html')
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'danger')
+            return render_template('register.html')
+        
+        # Hash the password
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        
+        # Connect to database
+        conn = sqlite3.connect(USER_DB)
+        cursor = conn.cursor()
+        
+        # Check if username or email already exists
+        cursor.execute('SELECT id FROM users WHERE username = ? OR email = ?', (username, email))
+        if cursor.fetchone():
+            conn.close()
+            flash('Username or email already exists', 'danger')
+            return render_template('register.html')
+        
+        # Insert new user
+        try:
+            cursor.execute(
+                'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+                (username, email, password_hash)
+            )
+            conn.commit()
+            
+            # Get the user ID for session
+            cursor.execute('SELECT id FROM users WHERE username = ?', (username,))
+            user_id = cursor.fetchone()[0]
+            
+            # Log the user in
+            session['user_id'] = user_id
+            session['username'] = username
+            
+            conn.close()
+            
+            # Redirect to subscription selection
+            return redirect(url_for('select_subscription'))
+            
+        except Exception as e:
+            conn.close()
+            flash(f'An error occurred: {str(e)}', 'danger')
+            return render_template('register.html')
+        
+    return render_template('register.html')
+
+@app.route('/select_subscription', methods=['GET', 'POST'])
+@login_required
+def select_subscription():
+    if request.method == 'POST':
+        plan = request.form.get('plan')
+        
+        if plan not in ['free', 'pro']:
+            flash('Invalid plan selected', 'danger')
+            return redirect(url_for('select_subscription'))
+        
+        # Connect to database
+        conn = sqlite3.connect(USER_DB)
+        cursor = conn.cursor()
+        
+        try:
+            # Update user's subscription
+            cursor.execute('''
+                UPDATE users 
+                SET subscription_type = ?, subscription_status = 'active'
+                WHERE id = ?
+            ''', (plan, session['user_id']))
+            
+            # Record subscription in history
+            cursor.execute('''
+                INSERT INTO subscription_history (user_id, subscription_type, payment_status)
+                VALUES (?, ?, ?)
+            ''', (session['user_id'], plan, 'completed' if plan == 'free' else 'pending'))
+            
+            conn.commit()
+            
+            if plan == 'pro':
+                # For pro plan, redirect to payment page
+                return redirect(url_for('payment'))
+            else:
+                # For free plan, redirect to home
+                flash('Welcome to Cricket Video Editor! Your free account is ready.', 'success')
+                return redirect(url_for('index'))
+                
+        except Exception as e:
+            conn.rollback()
+            flash(f'An error occurred: {str(e)}', 'danger')
+            return redirect(url_for('select_subscription'))
+        finally:
+            conn.close()
+    
+    return render_template('subscription.html')
+
+@app.route('/payment')
+@login_required
+def payment():
+    # Get user's subscription info
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    cursor.execute('SELECT subscription_type FROM users WHERE id = ?', (session['user_id'],))
+    subscription_type = cursor.fetchone()[0]
+    conn.close()
+    
+    if subscription_type != 'pro':
+        flash('Invalid subscription type', 'danger')
+        return redirect(url_for('select_subscription'))
+    
+    # TODO: Integrate with payment processor (e.g., Stripe)
+    # For now, we'll just show a placeholder payment page
+    return render_template('payment.html')
+
+def check_subscription_limits(user_id):
+    """Check if user has reached their subscription limits"""
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    
+    # Get user's subscription type
+    cursor.execute('SELECT subscription_type FROM users WHERE id = ?', (user_id,))
+    subscription_type = cursor.fetchone()[0]
+    
+    # Get user's project count
+    cursor.execute('''
+        SELECT COUNT(DISTINCT session_id) 
+        FROM user_sessions 
+        WHERE user_id = ?
+    ''', (user_id,))
+    project_count = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    # Check limits based on subscription type
+    if subscription_type == 'free' and project_count >= 3:
+        return False, "You've reached the limit of 3 projects for the free plan. Upgrade to Pro for more projects!"
+    
+    return True, None
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        
+        # Validate input
+        if not username or not password:
+            flash('Username and password are required', 'danger')
+            return render_template('login.html')
+        
+        # Hash the password
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        
+        # Connect to database
+        conn = sqlite3.connect(USER_DB)
+        cursor = conn.cursor()
+        
+        # Find user
+        cursor.execute('SELECT id, username FROM users WHERE username = ? AND password = ?', 
+                      (username, password_hash))
+        user = cursor.fetchone()
+        
+        if user:
+            # Set session
+            session['user_id'] = user[0]
+            session['username'] = user[1]
+            
+            # Record the login session in the database
+            session_id = str(uuid.uuid4())
+            cursor.execute('INSERT INTO user_sessions (user_id, session_id) VALUES (?, ?)',
+                          (user[0], session_id))
+            conn.commit()
+            
+            conn.close()
+            
+            # Get the next URL if provided
+            next_url = request.args.get('next', url_for('index'))
+            
+            flash('Login successful!', 'success')
+            return redirect(next_url)
+        else:
+            conn.close()
+            flash('Invalid username or password', 'danger')
+            return render_template('login.html')
+        
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    # Clear session
+    session.pop('user_id', None)
+    session.pop('username', None)
+    flash('You have been logged out successfully', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/profile')
+@login_required
+def profile():
+    # Get user info from database
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT username, email, created_at FROM users WHERE id = ?', (session['user_id'],))
+    user_data = cursor.fetchone()
+    
+    # Get user's sessions
+    cursor.execute('''
+        SELECT session_id FROM user_sessions 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC
+    ''', (session['user_id'],))
+    
+    sessions = []
+    for row in cursor.fetchall():
+        session_file = f"session_{row[0]}.json"
+        if os.path.exists(session_file):
+            with open(session_file, 'r') as f:
+                try:
+                    session_data = json.load(f)
+                    sessions.append({
+                        'session_id': row[0],
+                        'video_filename': session_data.get('video_filename', 'Unknown'),
+                        'has_music': 'music_filename' in session_data,
+                        'timestamp_count': len(session_data.get('timestamps', []))
+                    })
+                except:
+                    pass
+    
+    conn.close()
+    
+    return render_template('profile.html', user=user_data, sessions=sessions)
+
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/process-payment', methods=['POST'])
+@login_required
+def process_payment():
+    # TODO: Integrate with actual payment processor
+    # For now, we'll just simulate a successful payment
+    
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    
+    try:
+        # Update subscription history
+        cursor.execute('''
+            UPDATE subscription_history 
+            SET payment_status = 'completed'
+            WHERE user_id = ? AND subscription_type = 'pro'
+            ORDER BY start_date DESC LIMIT 1
+        ''', (session['user_id'],))
+        
+        conn.commit()
+        
+        flash('Payment successful! Welcome to the Pro plan.', 'success')
+        return redirect(url_for('index'))
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f'An error occurred: {str(e)}', 'danger')
+        return redirect(url_for('payment'))
+    finally:
+        conn.close()
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -48,6 +403,12 @@ def upload_file():
     
     if not allowed_file(video_file.filename):
         return jsonify({'error': 'Video file type not allowed'}), 400
+    
+    # Check subscription limits if user is logged in
+    if 'user_id' in session:
+        can_upload, error_message = check_subscription_limits(session['user_id'])
+        if not can_upload:
+            return jsonify({'error': error_message}), 403
     
     # Check if music file is provided
     has_music = 'music' in request.files and request.files['music'].filename != ''
@@ -136,6 +497,18 @@ def upload_file():
     # Save session data to a file
     with open(f"session_{session_id}.json", 'w') as f:
         json.dump(session_data, f)
+    
+    # If user is logged in, associate this session with their account
+    if 'user_id' in session:
+        try:
+            conn = sqlite3.connect(USER_DB)
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO user_sessions (user_id, session_id) VALUES (?, ?)',
+                          (session['user_id'], session_id))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error associating session with user: {str(e)}")
     
     return jsonify({
         'success': True,

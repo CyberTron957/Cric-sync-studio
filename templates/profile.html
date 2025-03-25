@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - Cricket Video Editor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-10">
+                <div class="card shadow mb-4">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h2 class="m-0">My Profile</h2>
+                        <a href="{{ url_for('index') }}" class="btn btn-light btn-sm">Back to Home</a>
+                    </div>
+                    <div class="card-body">
+                        {% with messages = get_flashed_messages(with_categories=true) %}
+                            {% if messages %}
+                                {% for category, message in messages %}
+                                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                                {% endfor %}
+                            {% endif %}
+                        {% endwith %}
+                        
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card mb-4">
+                                    <div class="card-header">
+                                        <h4>Account Information</h4>
+                                    </div>
+                                    <div class="card-body">
+                                        <p><strong>Username:</strong> {{ user[0] }}</p>
+                                        <p><strong>Email:</strong> {{ user[1] }}</p>
+                                        <p><strong>Member since:</strong> {{ user[2][:10] }}</p>
+                                        <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-8">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h4>My Video Projects</h4>
+                                    </div>
+                                    <div class="card-body">
+                                        {% if sessions %}
+                                            <div class="table-responsive">
+                                                <table class="table table-striped table-hover">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Video</th>
+                                                            <th>Music</th>
+                                                            <th>Timestamps</th>
+                                                            <th>Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for s in sessions %}
+                                                            <tr>
+                                                                <td>{{ s.video_filename }}</td>
+                                                                <td>{% if s.has_music %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
+                                                                <td>{{ s.timestamp_count }}</td>
+                                                                <td>
+                                                                    <a href="{{ url_for('editor', session_id=s.session_id) }}" class="btn btn-sm btn-primary">Edit</a>
+                                                                    {% if s.timestamp_count > 0 %}
+                                                                        <a href="{{ url_for('preview_video', session_id=s.session_id) }}" class="btn btn-sm btn-info" target="_blank">Preview</a>
+                                                                        <a href="{{ url_for('download_video', session_id=s.session_id) }}" class="btn btn-sm btn-success">Download</a>
+                                                                    {% endif %}
+                                                                </td>
+                                                            </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        {% else %}
+                                            <div class="alert alert-info">
+                                                <p>You haven't created any projects yet.</p>
+                                                <a href="{{ url_for('index') }}" class="btn btn-primary">Create Your First Project</a>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 

@@ -1119,5 +1119,23 @@ def renew_subscription():
     # Redirect to subscription selection page for renewal
     return redirect(url_for('select_subscription'))
 
+@app.route('/get_timestamps/<session_id>', methods=['GET'])
+def get_timestamps(session_id):
+    """Get all timestamps for a session"""
+    # Check if session exists
+    session_file = f"session_{session_id}.json"
+    if not os.path.exists(session_file):
+        return jsonify({'error': 'Session not found'}), 404
+    
+    # Load session data
+    with open(session_file, 'r') as f:
+        session_data = json.load(f)
+    
+    # Return timestamps if they exist
+    return jsonify({
+        'success': True,
+        'timestamps': session_data.get('timestamps', [])
+    })
+
 if __name__ == '__main__':
     app.run(debug=True)  

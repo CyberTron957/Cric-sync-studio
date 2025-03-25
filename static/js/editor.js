@@ -160,44 +160,20 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Fetch timestamps from server if they were imported
     function fetchTimestamps() {
-        fetch(`/save_timestamps`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                session_id: sessionId,
-                timestamps: [] // Empty array to just get the current timestamps
+        fetch(`/get_timestamps/${sessionId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    timestamps = data.timestamps;
+                    updateTimestampsList();
+                    updateMarkersOnProgress();
+                } else {
+                    console.error('Error fetching timestamps:', data.error);
+                }
             })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Get timestamps from server response (a separate call would be better in a real app)
-                fetch(`/video/${sessionId}`, {
-                    method: 'HEAD'
-                })
-                .then(() => {
-                    // This is just a trick to make another request to ensure session is loaded
-                    // In a real app, you'd have a dedicated endpoint to get timestamps
-                    
-                    // Simulate having the timestamps (in a real app, the server would return them)
-                    // For now we'll just add a few sample timestamps if hasTimestamps is true
-                    if (hasTimestamps) {
-                        // Add proper endpoints for getting timestamps in a real implementation
-                        // This is just a placeholder
-                        setTimeout(() => {
-                            timestamps = [10.5, 25.2, 42.8]; // Example timestamps
-                            updateTimestampsList();
-                            updateMarkersOnProgress();
-                        }, 1000);
-                    }
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching timestamps:', error);
-        });
+            .catch(error => {
+                console.error('Error fetching timestamps:', error);
+            });
     }
     
     // Export timestamps

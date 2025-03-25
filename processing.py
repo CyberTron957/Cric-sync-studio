@@ -7,9 +7,10 @@ import subprocess
 import librosa
 import tempfile
 import re
+import traceback
 
 # Global dictionary to store task progress
-tasks = {}
+task_progress = {}
 
 # Aspect ratio definitions
 ASPECT_RATIOS = {
@@ -66,23 +67,35 @@ def detect_beats(music_file):
         print(f"Error detecting beats: {str(e)}")
         return 0.4285  # Default beat duration
 
-def update_progress(task_id, progress, status="processing", message=""):
+def update_progress(task_id, progress, status, message):
     """Update the progress of a task"""
-    tasks[task_id] = {
+    task_progress[task_id] = {
         'progress': progress,
         'status': status,
-        'message': message,
-        'timestamp': time.time()
+        'message': message
     }
+    
+def save_task_status(task_id, status_dict):
+    """Save the status of a task"""
+    task_progress[task_id] = status_dict
+    
+def update_task_status(task_id, status_update):
+    """Update partial status information for a task"""
+    if task_id in task_progress:
+        task_progress[task_id].update(status_update)
+    else:
+        task_progress[task_id] = status_update
 
 def get_task_progress(task_id):
     """Get the progress of a task"""
-    return tasks.get(task_id, {
-        'progress': 0,
-        'status': 'unknown',
-        'message': 'Task not found',
-        'timestamp': time.time()
-    })
+    if task_id in task_progress:
+        return task_progress[task_id]
+    else:
+        return {
+            'progress': 0,
+            'status': 'unknown',
+            'message': 'Task not found'
+        }
 
 def trim_audio_file(input_file, output_file, start_time, duration):
     """Trim an audio file with FFmpeg"""
@@ -392,16 +405,281 @@ def process_video(session_id, task_id, keep_original_audio=False, crop_option='o
         update_progress(task_id, 0, "failed", f"Error: {str(e)}")
         return False
 
-def process_video_task(session_id, keep_original_audio=False, crop_option='original', text_overlays=None):
-    """Start a background task to process a video"""
+def process_video_task(session_id, keep_original_audio=False, crop_option='original', text_overlays=None, require_watermark=True, resolution='720p'):
+    """Process video in a background task with subscription features"""
+    # Create a task ID
     task_id = str(uuid.uuid4())
     
-    # Initialize task progress
-    update_progress(task_id, 0, "starting", "Starting video processing")
+    # Save task status
+    task_status = {
+        'task_id': task_id,
+        'status': 'processing',
+        'progress': 0,
+        'message': 'Starting video processing'
+    }
+    save_task_status(task_id, task_status)
     
-    # Start processing in a background thread
-    thread = threading.Thread(target=process_video, args=(session_id, task_id, keep_original_audio, crop_option, text_overlays))
+    # Process in a background thread to avoid blocking
+    thread = threading.Thread(
+        target=process_video_thread, 
+        args=(session_id, task_id, keep_original_audio, crop_option, text_overlays),
+        kwargs={'require_watermark': require_watermark, 'resolution': resolution}
+    )
     thread.daemon = True
     thread.start()
     
-    return task_id 
+    return task_id
+
+def process_video_thread(session_id, task_id, keep_original_audio, crop_option, text_overlays, require_watermark=True, resolution='720p'):
+    """Thread that actually processes the video"""
+    try:
+        # Load session data
+        session_file = f"session_{session_id}.json"
+        with open(session_file, 'r') as f:
+            session_data = json.load(f)
+            
+        # Set up paths
+        video_path = session_data['video_path']
+        music_path = session_data.get('music_path')
+        timestamps = session_data['timestamps']
+        
+        if not timestamps:
+            update_task_status(task_id, {'status': 'error', 'message': 'No timestamps found'})
+            return
+        
+        # Get video dimensions for crop calculation
+        width, height = get_video_dimensions(video_path)
+        if width is None or height is None:
+            update_task_status(task_id, {'status': 'error', 'message': 'Could not determine video dimensions'})
+            return
+        
+        # Get aspect ratio configuration
+        aspect_ratio = ASPECT_RATIOS.get(crop_option)
+        crop_params = calculate_crop_params(width, height, aspect_ratio) if aspect_ratio else None
+        
+        update_task_status(task_id, {'progress': 10, 'message': 'Processing audio'})
+        
+        if keep_original_audio:
+            beat_duration = 2.0  # Default duration when using original audio
+        else:
+            # Get beat duration from music file
+            beat_duration = detect_beats(music_path)
+        
+        update_task_status(task_id, {'progress': 20, 'message': 'Extracting video clips'})
+        
+        temp_clips = []
+        total_clips = len(timestamps)
+        
+        # Create a temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Process each timestamp
+            for i, timestamp in enumerate(timestamps):
+                start_time = max(0, timestamp - 0.1)
+                
+                # Determine duration - either from beat or from session data
+                if 'durations' in session_data and len(session_data['durations']) > i:
+                    clip_duration = session_data['durations'][i]
+                elif keep_original_audio:
+                    clip_duration = 2.0  # Default duration when using original audio
+                else:
+                    clip_duration = beat_duration
+                    
+                temp_clip = os.path.join(temp_dir, f"temp_clip_{i}.mp4")
+                
+                # Build the FFmpeg command based on crop option
+                if crop_params:
+                    # Extract video clip with its original audio and apply cropping
+                    video_filters = []
+                    
+                    # Add crop filter if it exists
+                    if crop_params.get('crop'):
+                        video_filters.append(crop_params['crop'])
+                    
+                    # Add padding filter if it exists (for special 1:1 in 9:16 case)
+                    if crop_params.get('pad'):
+                        video_filters.append(crop_params['pad'])
+                    
+                    # Join all filters with comma
+                    filter_chain = ','.join(video_filters)
+                    
+                    video_cmd = (
+                        f'ffmpeg -i "{video_path}" -ss {start_time} -t {clip_duration} '
+                        f'-vf "{filter_chain}" -c:v libx264 -c:a aac -y "{temp_clip}" -loglevel error'
+                    )
+                else:
+                    # No cropping, just extract with original dimensions
+                    video_cmd = (
+                        f'ffmpeg -i "{video_path}" -ss {start_time} -t {clip_duration} '
+                        f'-c:v libx264 -c:a aac -y "{temp_clip}" -loglevel error'
+                    )
+                
+                subprocess.run(video_cmd, shell=True)
+                temp_clips.append(temp_clip)
+                
+                # Update progress
+                progress = 20 + int(60 * ((i + 1) / total_clips))
+                update_task_status(task_id, {'progress': progress, 'message': f"Extracting clip {i+1}/{total_clips}"})
+            
+            # Create clips list file
+            clips_list = os.path.join(temp_dir, "clips_list.txt")
+            with open(clips_list, "w") as f:
+                for clip in temp_clips:
+                    f.write(f"file '{clip}'\n")
+            
+            update_task_status(task_id, {'progress': 80, 'message': "Combining clips and adding audio"})
+            
+            # Output file paths
+            output_dir = "processed"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                
+            # Add crop info to filename
+            crop_suffix = f"_{crop_option.replace(':', '_')}" if crop_option != 'original' else ""
+            output_video = os.path.join(output_dir, f"{session_id}{crop_suffix}_output.mp4")
+            
+            # Prepare for text overlay
+            temp_combined = os.path.join(temp_dir, "combined.mp4")
+            
+            # Combine clips with appropriate audio
+            if keep_original_audio:
+                # Just concatenate clips with their original audio
+                concat_cmd = (
+                    f'ffmpeg -f concat -safe 0 -i "{clips_list}" '
+                    f'-c copy "{temp_combined}" -y -loglevel error'
+                )
+            else:
+                # Combine clips (with their original audio) and add music as a separate track
+                concat_cmd = (
+                    f'ffmpeg -f concat -safe 0 -i "{clips_list}" -i "{music_path}" '
+                    f'-filter_complex "[0:a][1:a]amix=inputs=2:duration=longest:weights=0.5 0.5[a]" '
+                    f'-map 0:v -map "[a]" -c:v copy -c:a aac -shortest '
+                    f'"{temp_combined}" -y -loglevel error'
+                )
+            
+            subprocess.run(concat_cmd, shell=True)
+            
+            # Apply text overlays if provided
+            if text_overlays and len(text_overlays) > 0:
+                text_filters = []
+                
+                for overlay in text_overlays:
+                    if overlay.get('text'):
+                        text_filter = create_text_overlay_filter(
+                            overlay.get('text', ''),
+                            overlay.get('position', 'bottom'),
+                            overlay.get('style', {})
+                        )
+                        if text_filter:
+                            text_filters.append(text_filter)
+                
+                if text_filters:
+                    # Apply all text overlays to the combined video
+                    text_filter_chain = ','.join(text_filters)
+                    text_cmd = (
+                        f'ffmpeg -i "{temp_combined}" -vf "{text_filter_chain}" '
+                        f'-c:v libx264 -c:a copy -y "{output_video}" -loglevel error'
+                    )
+                    subprocess.run(text_cmd, shell=True)
+                else:
+                    # No text filters, just copy the combined file
+                    os.rename(temp_combined, output_video)
+            else:
+                # No text overlays, just use the combined file
+                os.rename(temp_combined, output_video)
+            
+            # Add watermark if required by subscription
+            if require_watermark:
+                update_task_status(task_id, {
+                    'progress': 85,
+                    'message': 'Adding watermark (Free plan)'
+                })
+                output_video = add_watermark(output_video, "cricsync.fun")
+            
+            # Set resolution based on subscription level
+            update_task_status(task_id, {
+                'progress': 90,
+                'message': f'Adjusting resolution to {resolution}'
+            })
+            output_video = adjust_resolution(output_video, resolution)
+            
+            # Update session data with output file
+            session_data['output_file'] = output_video
+            session_data['crop_option'] = crop_option
+            if text_overlays:
+                session_data['text_overlays'] = text_overlays
+                
+            # Add subscription info
+            session_data['processing_info'] = {
+                'watermark': require_watermark,
+                'resolution': resolution
+            }
+            
+            with open(session_file, 'w') as f:
+                json.dump(session_data, f)
+            
+            update_task_status(task_id, {
+                'progress': 100,
+                'status': 'completed',
+                'message': 'Video processing completed'
+            })
+    
+    except Exception as e:
+        update_task_status(task_id, {
+            'status': 'error',
+            'message': f'Error processing video: {str(e)}'
+        })
+        traceback.print_exc()
+
+def add_watermark(video_path, watermark_text):
+    """Add watermark text to the video"""
+    output_path = f"{video_path}_watermarked.mp4"
+    
+    # FFmpeg command to add watermark text
+    cmd = [
+        'ffmpeg', '-y',
+        '-i', video_path,
+        '-vf', f"drawtext=text='{watermark_text}':fontcolor=white:fontsize=24:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)-20:y=(h-text_h)-20",
+        '-codec:a', 'copy',
+        output_path
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Replace original file with watermarked version
+        os.replace(output_path, video_path)
+        return video_path
+    except subprocess.CalledProcessError:
+        # If watermarking fails, return original video
+        return video_path
+
+def adjust_resolution(video_path, resolution):
+    """Adjust video resolution based on subscription level"""
+    output_path = f"{video_path}_resized.mp4"
+    
+    # Map resolution text to actual dimensions
+    resolution_map = {
+        '720p': '1280:720',
+        '1080p': '1920:1080',
+        '4k': '3840:2160'
+    }
+    
+    # Default to 720p if resolution not found
+    resolution_dim = resolution_map.get(resolution, '1280:720')
+    
+    # FFmpeg command to resize video
+    cmd = [
+        'ffmpeg', '-y',
+        '-i', video_path,
+        '-vf', f"scale={resolution_dim}:force_original_aspect_ratio=decrease,pad={resolution_dim}:(ow-iw)/2:(oh-ih)/2",
+        '-codec:a', 'copy',
+        output_path
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Replace original file with resized version
+        os.replace(output_path, video_path)
+        return video_path
+    except subprocess.CalledProcessError:
+        # If resizing fails, return original video
+        return video_path 

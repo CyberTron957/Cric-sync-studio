@@ -26,6 +26,7 @@
                         {% endwith %}
                         
                         <div class="row">
+                            <!-- Account Information -->
                             <div class="col-md-4">
                                 <div class="card mb-4">
                                     <div class="card-header">
@@ -38,8 +39,73 @@
                                         <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
                                     </div>
                                 </div>
+
+                                <!-- Subscription Information -->
+                                <div class="card mb-4">
+                                    <div class="card-header">
+                                        <h4>Subscription</h4>
+                                    </div>
+                                    <div class="card-body">
+                                        {% set subscription_type = user[3] if user[3] else 'free' %}
+                                        {% set subscription_status = user[4] if user[4] else 'active' %}
+                                        
+                                        <div class="text-center mb-3">
+                                            {% if subscription_type == 'free' %}
+                                                <span class="badge bg-secondary p-2 fs-6 mb-2">Free Plan</span>
+                                            {% elif subscription_type == 'pro' %}
+                                                <span class="badge bg-primary p-2 fs-6 mb-2">Pro Plan</span>
+                                            {% elif subscription_type == 'premium' %}
+                                                <span class="badge bg-success p-2 fs-6 mb-2">Premium Plan</span>
+                                            {% endif %}
+
+                                            <p class="mb-1">Status: 
+                                                {% if subscription_status == 'active' %}
+                                                    <span class="text-success">Active</span>
+                                                {% elif subscription_status == 'pending' %}
+                                                    <span class="text-warning">Pending</span>
+                                                {% elif subscription_status == 'cancelled' %}
+                                                    <span class="text-danger">Cancelled</span>
+                                                {% endif %}
+                                            </p>
+                                            
+                                            {% if user[5] %}
+                                                <p class="small text-muted">Expires: {{ user[5][:10] }}</p>
+                                            {% endif %}
+                                        </div>
+                                        
+                                        <!-- Project Usage Progress -->
+                                        <div class="mb-3">
+                                            <p class="mb-1"><strong>Projects:</strong> {{ project_count }} / {% if project_limit > 1000000 %}Unlimited{% else %}{{ project_limit }}{% endif %}</p>
+                                            <div class="progress">
+                                                <div class="progress-bar {% if project_usage_percent > 80 %}bg-warning{% if project_usage_percent > 95 %}bg-danger{% endif %}{% endif %}" 
+                                                     role="progressbar" 
+                                                     style="width: {{ project_usage_percent }}%" 
+                                                     aria-valuenow="{{ project_usage_percent }}" 
+                                                     aria-valuemin="0" 
+                                                     aria-valuemax="100">
+                                                    {{ project_usage_percent }}%
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Subscription Management Actions -->
+                                        <div class="d-grid gap-2">
+                                            {% if subscription_type == 'free' %}
+                                                <a href="{{ url_for('select_subscription') }}" class="btn btn-primary">Upgrade Plan</a>
+                                            {% elif subscription_type == 'pro' and subscription_status == 'active' %}
+                                                <a href="{{ url_for('cancel_subscription') }}" class="btn btn-outline-danger" 
+                                                   onclick="return confirm('Are you sure you want to cancel your subscription?')">
+                                                   Cancel Subscription
+                                                </a>
+                                            {% elif subscription_status == 'cancelled' %}
+                                                <a href="{{ url_for('renew_subscription') }}" class="btn btn-success">Renew Subscription</a>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             
+                            <!-- Video Projects -->
                             <div class="col-md-8">
                                 <div class="card">
                                     <div class="card-header">
@@ -75,6 +141,16 @@
                                                     </tbody>
                                                 </table>
                                             </div>
+                                            
+                                            <!-- Project Limit Warning -->
+                                            {% if project_count >= project_limit %}
+                                                <div class="alert alert-warning mt-3">
+                                                    <p><strong>Project limit reached!</strong> You've reached your limit of {{ project_limit }} projects.</p>
+                                                    {% if subscription_type == 'free' %}
+                                                        <a href="{{ url_for('select_subscription') }}" class="btn btn-primary btn-sm">Upgrade to Pro</a>
+                                                    {% endif %}
+                                                </div>
+                                            {% endif %}
                                         {% else %}
                                             <div class="alert alert-info">
                                                 <p>You haven't created any projects yet.</p>
@@ -83,6 +159,47 @@
                                         {% endif %}
                                     </div>
                                 </div>
+                                
+                                <!-- Subscription History -->
+                                {% if subscription_history %}
+                                    <div class="card mt-4">
+                                        <div class="card-header">
+                                            <h4>Subscription History</h4>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Plan</th>
+                                                            <th>Start Date</th>
+                                                            <th>End Date</th>
+                                                            <th>Status</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for sh in subscription_history %}
+                                                            <tr>
+                                                                <td>{{ sh[0]|capitalize }}</td>
+                                                                <td>{{ sh[1][:10] }}</td>
+                                                                <td>{{ sh[2][:10] if sh[2] else 'Active' }}</td>
+                                                                <td>
+                                                                    {% if sh[3] == 'completed' %}
+                                                                        <span class="badge bg-success">Completed</span>
+                                                                    {% elif sh[3] == 'pending' %}
+                                                                        <span class="badge bg-warning">Pending</span>
+                                                                    {% elif sh[3] == 'cancelled' %}
+                                                                        <span class="badge bg-danger">Cancelled</span>
+                                                                    {% endif %}
+                                                                </td>
+                                                            </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>

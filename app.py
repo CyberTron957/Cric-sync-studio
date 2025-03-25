@@ -6,6 +6,7 @@ import uuid
 import sqlite3
 from werkzeug.utils import secure_filename
 from functools import wraps
+from datetime import datetime
 
 # Create upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -327,10 +328,14 @@ def profile():
     conn = sqlite3.connect(USER_DB)
     cursor = conn.cursor()
     
-    cursor.execute('SELECT username, email, created_at FROM users WHERE id = ?', (session['user_id'],))
+    # Get user profile along with subscription info
+    cursor.execute('''
+        SELECT username, email, created_at, subscription_type, subscription_status, subscription_end_date 
+        FROM users WHERE id = ?
+    ''', (session['user_id'],))
     user_data = cursor.fetchone()
     
-    # Get user's sessions
+    # Get user's projects
     cursor.execute('''
         SELECT session_id FROM user_sessions 
         WHERE user_id = ? 
@@ -353,15 +358,82 @@ def profile():
                 except:
                     pass
     
+    # Get subscription history
+    cursor.execute('''
+        SELECT subscription_type, start_date, end_date, payment_status
+        FROM subscription_history
+        WHERE user_id = ?
+        ORDER BY start_date DESC
+    ''', (session['user_id'],))
+    subscription_history = cursor.fetchall()
+    
     conn.close()
     
-    return render_template('profile.html', user=user_data, sessions=sessions)
+    # Calculate project limit and usage based on subscription
+    subscription_type = user_data[3] if user_data[3] else 'free'
+    project_limit = get_subscription_limit(subscription_type, 'projects')
+    project_count = len(sessions)
+    
+    # Calculate usage percentage - handle case where limit is very large
+    if project_limit > 1000000:  # Effectively unlimited
+        project_usage_percent = min(100, project_count)
+    else:
+        project_usage_percent = min(100, int(project_count / project_limit * 100)) if project_limit > 0 else 100
+    
+    return render_template('profile.html', 
+                          user=user_data, 
+                          sessions=sessions, 
+                          subscription_history=subscription_history,
+                          project_limit=project_limit,
+                          project_count=project_count,
+                          project_usage_percent=project_usage_percent)
+
+# New function to get subscription limits
+def get_subscription_limit(subscription_type, limit_type):
+    """Get the limit value for a specific subscription type and limit type"""
+    limits = {
+        'free': {
+            'projects': 3,
+            'video_length': 120,  # 2 minutes in seconds
+            'resolution': '720p',
+            'aspect_ratios': ['original', '16:9'],
+            'watermark': True
+        },
+        'pro': {
+            'projects': 20,
+            'video_length': 600,  # 10 minutes in seconds
+            'resolution': '1080p',
+            'aspect_ratios': ['original', '16:9', '9:16', '1:1', '4:3', '1:1_in_9:16'],
+            'watermark': False
+        },
+        'premium': {
+            'projects': 9999999,  # Effectively unlimited
+            'video_length': 9999999,  # Effectively unlimited
+            'resolution': '4k',
+            'aspect_ratios': ['original', '16:9', '9:16', '1:1', '4:3', '1:1_in_9:16'],
+            'watermark': False
+        }
+    }
+    
+    subscription = limits.get(subscription_type, limits['free'])
+    return subscription.get(limit_type, limits['free'][limit_type])
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/process-payment', methods=['POST'])
+# Add a route middleware to enforce login for all pages except login/register
+@app.before_request
+def require_login():
+    # Public routes that don't require login
+    public_routes = ['login', 'register', 'static', 'index']
+    
+    # Check if the route is public or if user is logged in
+    if request.endpoint not in public_routes and 'user_id' not in session:
+        flash('Please log in to access this feature.', 'warning')
+        return redirect(url_for('login', next=request.path))
+
+@app.route('/process_payment', methods=['POST'])
 @login_required
 def process_payment():
     # TODO: Integrate with actual payment processor
@@ -375,9 +447,9 @@ def process_payment():
         cursor.execute('''
             UPDATE subscription_history 
             SET payment_status = 'completed'
-            WHERE user_id = ? AND subscription_type = 'pro'
-            ORDER BY start_date DESC LIMIT 1
-        ''', (session['user_id'],))
+            WHERE user_id = ? AND subscription_type = 'pro' AND payment_status = 'pending'
+            AND id = (SELECT MAX(id) FROM subscription_history WHERE user_id = ? AND subscription_type = 'pro')
+        ''', (session['user_id'], session['user_id']))
         
         conn.commit()
         
@@ -700,6 +772,7 @@ def trim_audio():
     })
 
 @app.route('/process_video', methods=['POST'])
+@login_required
 def process_video():
     data = request.get_json()
     session_id = data.get('session_id')
@@ -726,6 +799,33 @@ def process_video():
     # Check if we have music when not using original audio only
     if not keep_original_audio and 'music_path' not in session_data:
         return jsonify({'error': 'No music file available for synchronization'}), 400
+    
+    # Get user's subscription type
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    cursor.execute('SELECT subscription_type FROM users WHERE id = ?', (session['user_id'],))
+    user_data = cursor.fetchone()
+    conn.close()
+    
+    subscription_type = user_data[0] if user_data and user_data[0] else 'free'
+    
+    # Calculate total video length based on timestamps
+    timestamps = session_data.get('timestamps', [])
+    total_video_length = sum(session_data.get('durations', [1] * len(timestamps)))
+    
+    # Check video length limit
+    max_video_length = get_subscription_limit(subscription_type, 'video_length')
+    if total_video_length > max_video_length:
+        return jsonify({
+            'error': f'Your {subscription_type} plan allows videos up to {max_video_length/60:.1f} minutes. Your project is {total_video_length/60:.1f} minutes. Please upgrade your plan or reduce the number of clips.'
+        }), 403
+    
+    # Check aspect ratio limit
+    allowed_ratios = get_subscription_limit(subscription_type, 'aspect_ratios')
+    if crop_option not in allowed_ratios:
+        return jsonify({
+            'error': f'Your {subscription_type} plan does not support the {crop_option} aspect ratio. Please upgrade to access all aspect ratios.'
+        }), 403
     
     # Check if crop option is valid
     from processing import ASPECT_RATIOS
@@ -756,9 +856,33 @@ def process_video():
         if valid_overlay['text']:
             valid_text_overlays.append(valid_overlay)
     
+    # Add watermark based on subscription
+    require_watermark = get_subscription_limit(subscription_type, 'watermark')
+    
+    # Get appropriate resolution based on subscription
+    resolution = get_subscription_limit(subscription_type, 'resolution')
+    
+    # Store subscription info and limits in session data for processing
+    session_data['subscription_info'] = {
+        'type': subscription_type,
+        'watermark': require_watermark,
+        'resolution': resolution
+    }
+    
+    # Save updated session data
+    with open(session_file, 'w') as f:
+        json.dump(session_data, f)
+    
     # Start processing in a background task
     from processing import process_video_task
-    task_id = process_video_task(session_id, keep_original_audio, crop_option, valid_text_overlays)
+    task_id = process_video_task(
+        session_id, 
+        keep_original_audio, 
+        crop_option, 
+        valid_text_overlays, 
+        require_watermark=require_watermark,
+        resolution=resolution
+    )
     
     return jsonify({
         'success': True,
@@ -815,23 +939,52 @@ def download_video(session_id):
     )
 
 @app.route('/crop_options', methods=['GET'])
+@login_required
 def get_crop_options():
-    """Return the available crop options"""
+    """Return the available crop options based on subscription level"""
     from processing import ASPECT_RATIOS
     
-    # Create a list of options with labels
-    options = [
-        {'value': 'original', 'label': 'Original Aspect Ratio'},
-        {'value': '16:9', 'label': 'Landscape (16:9)'},
-        {'value': '9:16', 'label': 'Portrait (9:16)'},
-        {'value': '1:1', 'label': 'Square (1:1)'},
-        {'value': '4:3', 'label': 'Classic (4:3)'},
-        {'value': '1:1_in_9:16', 'label': 'Square in Vertical (1:1 in 9:16)'}
+    # Get user's subscription type
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    cursor.execute('SELECT subscription_type FROM users WHERE id = ?', (session['user_id'],))
+    user_data = cursor.fetchone()
+    conn.close()
+    
+    subscription_type = user_data[0] if user_data and user_data[0] else 'free'
+    
+    # Get allowed aspect ratios for this subscription
+    allowed_ratios = get_subscription_limit(subscription_type, 'aspect_ratios')
+    
+    # Define all options
+    all_options = [
+        {'value': 'original', 'label': 'Original Aspect Ratio', 'requires': 'free'},
+        {'value': '16:9', 'label': 'Landscape (16:9)', 'requires': 'free'},
+        {'value': '9:16', 'label': 'Portrait (9:16)', 'requires': 'pro'},
+        {'value': '1:1', 'label': 'Square (1:1)', 'requires': 'pro'},
+        {'value': '4:3', 'label': 'Classic (4:3)', 'requires': 'pro'},
+        {'value': '1:1_in_9:16', 'label': 'Square in Vertical (1:1 in 9:16)', 'requires': 'pro'}
     ]
+    
+    # Filter options based on subscription
+    available_options = []
+    locked_options = []
+    
+    for option in all_options:
+        if option['value'] in allowed_ratios:
+            # Remove the 'requires' field before sending to frontend
+            option_copy = option.copy()
+            option_copy.pop('requires', None)
+            available_options.append(option_copy)
+        else:
+            # For locked options, keep the requires field to show upgrade prompt
+            locked_options.append(option)
     
     return jsonify({
         'success': True,
-        'options': options
+        'options': available_options,
+        'locked_options': locked_options,
+        'subscription_type': subscription_type
     })
 
 @app.route('/preview/<session_id>')
@@ -917,6 +1070,46 @@ def get_font_options():
         'success': True,
         'fonts': fonts
     })
+
+@app.route('/cancel_subscription')
+@login_required
+def cancel_subscription():
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    
+    try:
+        # Update user's subscription status to cancelled
+        cursor.execute('''
+            UPDATE users 
+            SET subscription_status = 'cancelled'
+            WHERE id = ?
+        ''', (session['user_id'],))
+        
+        # Record cancellation in subscription history
+        cursor.execute('''
+            UPDATE subscription_history 
+            SET payment_status = 'cancelled', end_date = datetime('now')
+            WHERE user_id = ? AND subscription_type = 'pro' AND payment_status = 'completed'
+            ORDER BY start_date DESC LIMIT 1
+        ''', (session['user_id'],))
+        
+        conn.commit()
+        
+        flash('Your subscription has been cancelled. Your Pro features will remain active until the end of your current billing period.', 'info')
+        return redirect(url_for('profile'))
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f'An error occurred: {str(e)}', 'danger')
+        return redirect(url_for('profile'))
+    finally:
+        conn.close()
+
+@app.route('/renew-subscription')
+@login_required
+def renew_subscription():
+    # Redirect to subscription selection page for renewal
+    return redirect(url_for('select_subscription'))
 
 if __name__ == '__main__':
     app.run(debug=True)  

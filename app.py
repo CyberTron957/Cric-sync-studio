@@ -9,6 +9,9 @@ from functools import wraps
 from datetime import datetime
 import tempfile
 import subprocess
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Create upload folder
 UPLOAD_FOLDER = 'uploads'
@@ -603,22 +606,32 @@ def editor(session_id):
     # Check if session exists
     session_file = f"session_{session_id}.json"
     if not os.path.exists(session_file):
-        return redirect(url_for('index'))
+        flash('Session not found', 'danger')
+        return redirect(url_for('dashboard'))
     
     # Load session data
     with open(session_file, 'r') as f:
         session_data = json.load(f)
     
+    # Get timestamp count for display
+    timestamp_count = len(session_data.get('timestamps', []))
+    
     # Prepare template data
     template_data = {
         'session_id': session_id,
         'video_filename': session_data['video_filename'],
-        'has_timestamps': len(session_data.get('timestamps', [])) > 0,
+        'has_timestamps': timestamp_count > 0,
+        'timestamp_count': timestamp_count,
         'has_music': 'music_filename' in session_data
     }
     
     if 'music_filename' in session_data:
         template_data['music_filename'] = session_data['music_filename']
+    
+    # Pass text overlays data if available
+    if 'text_overlays' in session_data and session_data['text_overlays']:
+        template_data['has_text_overlays'] = True
+        template_data['text_overlay_count'] = len(session_data['text_overlays'])
     
     return render_template('editor.html', **template_data)
 
@@ -917,14 +930,57 @@ def check_progress(task_id):
 
 @app.route('/download/<session_id>')
 def download_video(session_id):
+    """Show download success page with links to download file, go to profile, and create new project"""
     # Check if session exists
     session_file = f"session_{session_id}.json"
     if not os.path.exists(session_file):
-        return jsonify({'error': 'Session not found'}), 404
+        flash('Session not found', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    # Load session data to pass video name to the success page
+    with open(session_file, 'r') as f:
+        session_data = json.load(f)
+    
+    video_filename = session_data.get('video_filename', 'highlight video')
+    
+    # Track the download in analytics if needed
+    if 'user_id' in session:
+        conn = sqlite3.connect(USER_DB)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS download_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                session_id TEXT,
+                download_time TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            INSERT INTO download_history (user_id, session_id, download_time)
+            VALUES (?, ?, ?)
+        ''', (session['user_id'], session_id, datetime.now()))
+        conn.commit()
+        conn.close()
+    
+    return render_template('download_success.html', session_id=session_id, video_filename=video_filename)
+
+@app.route('/download_file/<session_id>')
+def download_file(session_id):
+    """Actual file download handler"""
+    # Check if session exists
+    session_file = f"session_{session_id}.json"
+    if not os.path.exists(session_file):
+        flash('Session not found', 'danger')
+        return redirect(url_for('dashboard'))
     
     # Load session data
     with open(session_file, 'r') as f:
         session_data = json.load(f)
+    
+    # Get original filename to use for download
+    original_filename = session_data.get('video_filename', 'cricket_highlight.mp4')
+    filename_base = os.path.splitext(original_filename)[0]
+    download_filename = f"{filename_base}_highlight.mp4"
     
     # Check if output_file is directly specified in session
     if 'output_file' in session_data:
@@ -932,8 +988,9 @@ def download_video(session_id):
         if os.path.exists(output_file):
             return send_from_directory(
                 os.path.dirname(output_file), 
-                os.path.basename(output_file), 
-                as_attachment=True
+                os.path.basename(output_file),
+                as_attachment=True,
+                download_name=download_filename
             )
     
     # Fallback: try to find file with crop option if specified
@@ -945,12 +1002,15 @@ def download_video(session_id):
         # Try the original filename as last resort
         output_file = os.path.join(app.config['PROCESSED_FOLDER'], f"{session_id}_output.mp4")
         if not os.path.exists(output_file):
-            return jsonify({'error': 'Processed file not found'}), 404
+            flash('Processed file not found', 'danger')
+            return redirect(url_for('editor', session_id=session_id))
     
+    # Force attachment download with a user-friendly filename
     return send_from_directory(
         app.config['PROCESSED_FOLDER'], 
-        os.path.basename(output_file), 
-        as_attachment=True
+        os.path.basename(output_file),
+        as_attachment=True,
+        download_name=download_filename
     )
 
 @app.route('/crop_options', methods=['GET'])
@@ -1175,6 +1235,87 @@ def get_video_frame(session_id, time):
                 return jsonify({'error': 'Failed to extract frame'}), 500
         except Exception as e:
             return jsonify({'error': f'Error extracting frame: {str(e)}'}), 500
+
+@app.route('/submit_support_request', methods=['POST'])
+@login_required
+def submit_support_request():
+    issue_type = request.form.get('issue_type')
+    subject = request.form.get('subject')
+    description = request.form.get('description')
+    email = request.form.get('email')
+    
+    # Get user information for better context
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM users WHERE id = ?", (session['user_id'],))
+    username = cursor.fetchone()[0]
+    conn.close()
+    
+    # Log the support request in a database or file for tracking
+    support_id = str(uuid.uuid4())[:8]
+    conn = sqlite3.connect(USER_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS support_requests (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER,
+            issue_type TEXT,
+            subject TEXT,
+            description TEXT,
+            email TEXT,
+            status TEXT,
+            created_at TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
+        INSERT INTO support_requests (id, user_id, issue_type, subject, description, email, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (support_id, session['user_id'], issue_type, subject, description, email, 'new', datetime.now()))
+    conn.commit()
+    conn.close()
+    
+    # Send email notification to the admin (configure your SMTP settings in production)
+    try:
+        # Format the email content
+        admin_email = os.environ.get('ADMIN_EMAIL', 'admin@example.com')
+        
+        message = MIMEMultipart()
+        message['From'] = email
+        message['To'] = admin_email
+        message['Subject'] = f"[{issue_type}] {subject} - Support Request #{support_id}"
+        
+        body = f"""
+        New support request submitted:
+        
+        Request ID: {support_id}
+        Type: {issue_type}
+        From: {username} ({email})
+        
+        Description:
+        {description}
+        
+        Please respond to the user at: {email}
+        """
+        
+        message.attach(MIMEText(body, 'plain'))
+        
+        # In production, uncomment and configure these lines
+        """
+        with smtplib.SMTP(os.environ.get('SMTP_SERVER', 'smtp.gmail.com'), 587) as server:
+            server.starttls()
+            server.login(os.environ.get('SMTP_USERNAME'), os.environ.get('SMTP_PASSWORD'))
+            server.send_message(message)
+        """
+        
+        # For now, just log that we would send an email
+        print(f"Support request {support_id} would be emailed to {admin_email}")
+        
+        flash('Your support request has been submitted. We will get back to you soon!', 'success')
+    except Exception as e:
+        print(f"Error sending support email: {str(e)}")
+        flash('Your request was logged, but there was an issue sending the notification email.', 'warning')
+    
+    return redirect(url_for('profile'))
 
 if __name__ == '__main__':
     app.run(debug=True, port=5120)  

@@ -754,7 +754,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         processingComplete.classList.remove('d-none');
                         
                         // Setup download button
-                        downloadBtn.href = `/download/${sessionId}`;
+                        downloadBtn.href = `/download_file/${sessionId}`;
+                        downloadBtn.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            
+                            // Save timestamps first
+                            saveTimestamps(true)
+                            .then(() => {
+                                // Navigate to the success page
+                                window.location.href = `/download/${sessionId}`;
+                            })
+                            .catch(error => {
+                                console.error('Error saving timestamps:', error);
+                                // Fallback to direct download if save fails
+                                window.location.href = `/download_file/${sessionId}`;
+                            });
+                        });
                         
                         // Add preview button to the processing modal
                         const previewBtn = document.createElement('button');
@@ -801,7 +816,22 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Setup download button
             if (previewDownloadBtn) {
-                previewDownloadBtn.href = `/download/${sessionId}`;
+                previewDownloadBtn.href = `/download_file/${sessionId}`;
+                previewDownloadBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // Save timestamps first
+                    saveTimestamps(true)
+                    .then(() => {
+                        // Navigate to the success page
+                        window.location.href = `/download/${sessionId}`;
+                    })
+                    .catch(error => {
+                        console.error('Error saving timestamps:', error);
+                        // Fallback to direct download if save fails
+                        window.location.href = `/download_file/${sessionId}`;
+                    });
+                });
             }
             
             // Show the modal

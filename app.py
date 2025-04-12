@@ -26,7 +26,7 @@ os.makedirs(PROCESSED_FOLDER, exist_ok=True)
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['PROCESSED_FOLDER'] = PROCESSED_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max upload size
+app.config['MAX_CONTENT_LENGTH'] = 1000 * 1024 * 1024  # 500MB max upload size
 app.secret_key = os.environ.get('SECRET_KEY', 'cricket_video_editor_secret_key')  # Secret key for sessions
 
 # Initialize user database
